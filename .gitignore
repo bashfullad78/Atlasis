@@ -1,0 +1,8 @@
+*.env
+__pycache__/
+venv/
+.vscode/
+cache/
+data/raw
+data/processed
+*.pyc
