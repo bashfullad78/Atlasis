@@ -27,6 +27,8 @@ Therefore:
 * The population layer should be corrected to use a population count raster before final results are reported.
 * The optimization and road network methodology can remain largely unchanged after this correction because the population layer is consumed as spatial demand data.
 
+> **v0.2 status:** this correction is now implemented. The population layer converts WorldPop density values to people per cell (density x geodesic cell area on the WGS84 grid) and is country agnostic (any geocodable city, per-country raster shared and cached per city as Parquet). All population figures in this document were produced by v0.1 and remain provisional; rerun the pipeline before quoting absolute numbers. The corrected rerun of these four cities is in `analysis-v0.2.md`; the mapping between the two documents' figures (scale factor per city, and why Mysuru's 94.7% reflects the polygon-restricted facility class) is documented there.
+
 The findings below are therefore primarily relevant for evaluating the behavior of the optimization pipeline, threshold selection, candidate stability, and differences between cities.
 
 ---
@@ -55,6 +57,12 @@ This does not mean that healthcare access in Mysuru is universally adequate. It 
 ### 5minute analysis
 
 The 5minute threshold produced a more discriminating result.
+
+> **v0.2 note:** these two figures correspond to the **restricted facility
+> class** (the ~20 polygon mapped hospitals), not the full 85-facility curated
+> network, which is saturated even at 5 minutes. See `analysis-v0.2.md` for
+> both configurations under corrected weights (93.5% / +24,140 restricted;
+> 100.0% / +0 unrestricted).
 
 * Baseline coverage: approximately 94.7%
 * Best single candidate gain: approximately 28,771 modeled people

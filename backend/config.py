@@ -8,16 +8,6 @@ import pyproj
 
 DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "../data")
 
-# Indian cities useful for quick tests (any place string works via --place).
-PLACES = {
-    "mysuru": "Mysuru, Karnataka, India",
-    "bengaluru": "Bengaluru, Karnataka, India",
-    "hyderabad": "Hyderabad, Telangana, India",
-    "pune": "Pune, Maharashtra, India",
-    "chennai": "Chennai, Tamil Nadu, India",
-    "kolkata": "Kolkata, West Bengal, India",
-}
-
 
 def utm_epsg_from_lonlat(lon, lat):
     """UTM zone EPSG code for a lon/lat point (32xxx southern hemisphere)."""
@@ -25,14 +15,20 @@ def utm_epsg_from_lonlat(lon, lat):
     return 32600 + zone if lat >= 0 else 32700 + zone
 
 
-def city_config(slug="mysuru", place=None):
-    return CityConfig(slug=slug, place=place or PLACES.get(slug, slug))
+def city_config(slug="mysuru", place=None, country=None):
+    """Country-agnostic config: any geocodable place string works via --place.
+
+    ``country`` is an optional ISO 3166-1 alpha-3 code (e.g. IND, UGA, DEU);
+    it is auto-resolved from geocoding or meta.json when omitted.
+    """
+    return CityConfig(slug=slug, place=place or slug, country=country)
 
 
 @dataclass
 class CityConfig:
     slug: str
     place: str
+    country: str = None                    # ISO3; auto-resolved if None
     network_type: str = "drive"
     spacing_m: int = 500
     threshold_sec: int = 900            # drive-time service guarantee (15 min)
@@ -65,6 +61,16 @@ class CityConfig:
         return os.path.join(self.raw_dir, "roads.graphml")
 
     @property
+    def roads_nodes_path(self):
+        """Slim-format node table (osmid, x, y) for the road graph."""
+        return os.path.join(self.raw_dir, "roads_nodes.parquet")
+
+    @property
+    def roads_edges_path(self):
+        """Slim-format edge table (u, v, k, length, ...) for the road graph."""
+        return os.path.join(self.raw_dir, "roads_edges.parquet")
+
+    @property
     def hospitals_path(self):
         return os.path.join(self.raw_dir, "hospitals.gpkg")
 
@@ -74,18 +80,19 @@ class CityConfig:
 
     @property
     def pop_cache_path(self):
-        return os.path.join(self.raw_dir, "population.csv")
+        return os.path.join(self.raw_dir, "population.parquet")
 
     def utm_epsg(self):
-        """EPSG from meta.json (written by download), else from boundary bounds."""
+        """EPSG from meta.json, else from boundary bounds (then persisted)."""
         if self._epsg is None:
-            if os.path.exists(self.meta_path):
-                with open(self.meta_path) as f:
-                    self._epsg = json.load(f).get("utm_epsg")
+            self._epsg = load_meta(self).get("utm_epsg")
             if self._epsg is None and os.path.exists(self.boundary_path):
                 b = gpd.read_file(self.boundary_path).to_crs(epsg=4326)
                 c = b.union_all().centroid
                 self._epsg = utm_epsg_from_lonlat(c.x, c.y)
+                # Persist so future runs (and other cities' tooling) never
+                # need to recompute or re-read the boundary for this.
+                persist_meta(self, utm_epsg=self._epsg)
             if self._epsg is None:
                 raise FileNotFoundError(
                     f"No CRS metadata for '{self.slug}'. Run download first: "
@@ -98,3 +105,30 @@ class CityConfig:
         if self._crs is None:
             self._crs = pyproj.CRS.from_epsg(self.utm_epsg())
         return self._crs
+
+
+def load_meta(cfg: CityConfig) -> dict:
+    """Read a city's meta.json, or {} when absent."""
+    if os.path.exists(cfg.meta_path):
+        with open(cfg.meta_path) as f:
+            return json.load(f)
+    return {}
+
+
+def persist_meta(cfg: CityConfig, **updates) -> None:
+    """Merge ``updates`` into the city's meta.json (never clobbers other keys).
+
+    Lets any component that resolves a city fact (UTM zone, country, ...)
+    write it back once, so later runs are offline and reproducible. Also
+    creates meta.json on first write for cities downloaded before the
+    ``iso_country`` field existed.
+    """
+    meta = load_meta(cfg)
+    changed = {k: v for k, v in updates.items() if meta.get(k) != v}
+    if not changed:
+        return
+    meta.update(changed)
+    os.makedirs(cfg.raw_dir, exist_ok=True)
+    with open(cfg.meta_path, "w") as f:
+        json.dump(meta, f, indent=2)
+    print(f"✓ meta.json updated: {', '.join(sorted(changed))}")

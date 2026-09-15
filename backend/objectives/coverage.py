@@ -39,10 +39,18 @@ def nearest_nodes_unique(geometries, graph):
 
 
 def population_by_node(pop_gdf, graph):
-    """Aggregate population by nearest graph node."""
+    """Aggregate population by nearest graph node.
+
+    Snapping is vectorized (one KD-tree query for all cells): the 100 m
+    count raster yields ~10^4-10^5 cells per city, too many for per-row
+    queries.
+    """
+    nodes = ox.distance.nearest_nodes(
+        graph, pop_gdf.geometry.x.values, pop_gdf.geometry.y.values
+    )
+    pops = pop_gdf["population"].astype(float).values
     node_pop = {}
-    for geom, pop in zip(pop_gdf.geometry, pop_gdf["population"].astype(float)):
-        node = ox.distance.nearest_nodes(graph, geom.x, geom.y)
+    for node, pop in zip(nodes, pops):
         node_pop[node] = node_pop.get(node, 0.0) + pop
     return node_pop
 
@@ -78,10 +86,11 @@ def score_all_candidates_population(candidates, pop_gdf, graph, hospitals=None,
         )
 
     # Snap each candidate to its nearest node WITHOUT dedup: two grid sites can
-    # share a node, and each candidate must keep its own score.
-    candidate_nodes = [
-        ox.distance.nearest_nodes(graph_rev, p.x, p.y) for p in candidates.geometry
-    ]
+    # share a node, and each candidate must keep its own score. Vectorized:
+    # one KD-tree query for the whole grid.
+    candidate_nodes = ox.distance.nearest_nodes(
+        graph_rev, candidates.geometry.x.values, candidates.geometry.y.values
+    )
     print(f"Scoring {len(candidates)} candidates by marginal {threshold / 60:.0f}-min drive coverage...")
 
     scores, totals = [], []
