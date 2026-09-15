@@ -120,12 +120,12 @@ def compare_baseline_optimized(baseline, optimized):
         verdict = "✓ Meaningful improvement"
     elif baseline["coverage_pct"] >= 99.9:
         verdict = (
-            "⚠ City already ~fully covered within the threshold — no site can add people. "
+            "⚠ City already ~fully covered within the threshold; no site can add people. "
             "Lower the threshold (e.g. 5-min emergency access), restrict the facility class, "
             "or model capacity instead of mere presence."
         )
     else:
-        verdict = "⚠ Marginal — try a denser candidate grid or looser constraints"
+        verdict = "⚠ Marginal: try a denser candidate grid or looser constraints"
     print(f"  {verdict}")
 
     return {
@@ -146,4 +146,4 @@ if __name__ == "__main__":
     cfg = city_config()
     pop_gdf = load_population_grid(cfg)
     baseline = compute_baseline(load_hospitals(cfg), load_graph(cfg), pop_gdf)
-    print_stats("Baseline Accessibility — existing facilities only", baseline)
+    print_stats("Baseline Accessibility (existing facilities only)", baseline)

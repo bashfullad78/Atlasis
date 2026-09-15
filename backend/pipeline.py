@@ -22,7 +22,7 @@ def run_pipeline(cfg: CityConfig, spacing_m=None, top_n=None, threshold=None):
     top_n = top_n or cfg.top_n
     threshold = threshold or cfg.threshold_sec
 
-    print(f"=== ATLASIS Pipeline — {cfg.place} ===\n")
+    print(f"\n=== ATLASIS Pipeline: {cfg.place} ===\n")
 
     print("[1/7] Loading boundary...")
     boundary = load_boundary(cfg)
@@ -60,9 +60,9 @@ def run_pipeline(cfg: CityConfig, spacing_m=None, top_n=None, threshold=None):
 
     print("\n[7/7] Baseline vs optimized accessibility...")
     baseline = compute_baseline(hospitals, graph, pop_gdf, threshold=threshold)
-    print_stats("Baseline Accessibility — existing facilities only", baseline, threshold=threshold)
+    print_stats("Baseline Accessibility (existing facilities only)", baseline, threshold=threshold)
     optimized = compute_optimized(top, hospitals, graph, pop_gdf, threshold=threshold)
-    print_stats("Optimized Accessibility — existing + best recommended site", optimized, threshold=threshold)
+    print_stats("Optimized Accessibility (existing + best recommended site)", optimized, threshold=threshold)
     comparison = compare_baseline_optimized(baseline, optimized)
 
     return {"baseline": baseline, "optimized": optimized, "comparison": comparison, "top_sites": top}
