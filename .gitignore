@@ -6,3 +6,4 @@ cache/
 data/raw
 data/processed
 *.pyc
+sketches/
