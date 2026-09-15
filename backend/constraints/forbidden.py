@@ -17,25 +17,34 @@ FORBIDDEN_TAGS = [
 ]
 
 
-def download_forbidden(cfg: CityConfig):
+def download_forbidden(cfg: CityConfig, boundary=None):
     print("Downloading forbidden geometry...")
     os.makedirs(cfg.raw_dir, exist_ok=True)
+    if boundary is None:
+        boundary = gpd.read_file(cfg.boundary_path)
+    polygon = boundary.union_all()
     layers = []
     for tags in FORBIDDEN_TAGS:
         try:
-            layer = ox.features_from_place(cfg.place, tags=tags)
+            layer = ox.features_from_polygon(polygon, tags=tags)
             if not layer.empty:
                 layers.append(layer[["geometry"]])
                 print(f"  ✓ {tags}")
         except Exception as e:
-            print(f"  ✗ {tags} — {e}")
+            print(f"  ✗ {tags} ({e})")
     if layers:
         combined = pd.concat(layers, ignore_index=True)
         gpd.GeoDataFrame(combined, geometry="geometry", crs="EPSG:4326") \
             .to_file(cfg.forbidden_path, driver="GPKG")
         print(f"Saved {len(combined)} forbidden zones")
     else:
-        print("No forbidden geometry found")
+        # Refuse to write an empty cache: an empty union here would silently
+        # disable the forbidden filter for every future run.
+        raise ValueError(
+            "No forbidden geometry found for this city; the forbidden filter "
+            "would be a no-op. Run without forbidden zones by removing "
+            "data/raw/<city>/forbidden.gpkg if that is intentional."
+        )
 
 
 def load_forbidden(cfg: CityConfig):
