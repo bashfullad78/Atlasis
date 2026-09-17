@@ -269,7 +269,6 @@ Specific to the corrected layer:
 * The population figure for cells whose centroid coincides with a facility node
   is still a resolution artifact (reported as `pop_at_zero_min` in every run).
 
-The next methodological priorities remain those listed in the v0.1 document and
-the project handoff: joint multi-facility selection (MCLP with a greedy ≥
+The next methodological priorities remain those listed in the v0.1 document: joint multi-facility selection (MCLP with a greedy ≥
 (1 − 1/e) guarantee and exact benchmark), a 2SFCA accessibility index beyond the
 binary threshold metric, and uncertainty reporting for the modeled population.
