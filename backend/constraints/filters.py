@@ -28,8 +28,19 @@ def filter_far_from_roads(candidates, graph, cfg: CityConfig):
     return filtered
 
 
-def apply_all_filters(candidates, hospitals, graph, cfg: CityConfig):
+def apply_all_filters(candidates, hospitals, graph, cfg: CityConfig, skip_forbidden=False):
+    """Apply every hard filter; ``skip_forbidden`` skips only the forbidden one.
+
+    Skipping is opt-in and loud: results produced this way are not comparable
+    to unskipped runs, since candidates inside water/parks/cemeteries are no
+    longer excluded. The forbidden cache is still fetched (or reused) so the
+    filter can be re-enabled without refetching.
+    """
     candidates = filter_too_close_to_existing(candidates, hospitals, cfg)
     candidates = filter_far_from_roads(candidates, graph, cfg)
-    candidates = filter_forbidden(candidates, cfg)
+    if skip_forbidden:
+        print("Skipping forbidden-zone filter (--skip-forbidden): results are "
+              "NOT comparable to runs with the filter enabled.")
+    else:
+        candidates = filter_forbidden(candidates, cfg)
     return gpd.GeoDataFrame(candidates.reset_index(drop=True), crs=candidates.crs)

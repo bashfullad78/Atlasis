@@ -4,40 +4,42 @@ import os
 
 import geopandas as gpd
 import osmnx as ox
-import pandas as pd
 
 from backend.config import CityConfig, city_config
+from backend.data.overpass import overpass_call
 
-FORBIDDEN_TAGS = [
-    {"natural": "water"},
-    {"waterway": True},
-    {"landuse": "reservoir"},
-    {"leisure": "park"},
-    {"landuse": "cemetery"},
-]
+# One combined Overpass query: osmnx unions tag groups within a single
+# request (list values group under one key). One request instead of five
+# sequential ones removes four independent 180 s hang risks under Overpass
+# instability (v0.2 lost three working windows to exactly this step).
+FORBIDDEN_TAGS = {
+    "natural": "water",
+    "waterway": True,
+    "landuse": ["reservoir", "cemetery"],
+    "leisure": "park",
+}
 
 
 def download_forbidden(cfg: CityConfig, boundary=None):
-    print("Downloading forbidden geometry...")
+    """Fetch all forbidden layers in one Overpass request, saved atomically.
+
+    No per-layer try/except: a partially fetched forbidden cache silently
+    weakens the filter (candidates near an unfetched layer would pass), so
+    the fetch is all-or-nothing and retried/failover as a unit.
+    """
+    print(f"Downloading forbidden zones in one combined query: {FORBIDDEN_TAGS}")
     os.makedirs(cfg.raw_dir, exist_ok=True)
     if boundary is None:
+        if not os.path.exists(cfg.boundary_path):
+            raise FileNotFoundError(
+                f"No boundary for '{cfg.slug}'. Run the download step (or the "
+                f"bootstrap) first: python -m backend.main --city {cfg.slug} --place ..."
+            )
         boundary = gpd.read_file(cfg.boundary_path)
     polygon = boundary.union_all()
-    layers = []
-    for tags in FORBIDDEN_TAGS:
-        try:
-            layer = ox.features_from_polygon(polygon, tags=tags)
-            if not layer.empty:
-                layers.append(layer[["geometry"]])
-                print(f"  ✓ {tags}")
-        except Exception as e:
-            print(f"  ✗ {tags} ({e})")
-    if layers:
-        combined = pd.concat(layers, ignore_index=True)
-        gpd.GeoDataFrame(combined, geometry="geometry", crs="EPSG:4326") \
-            .to_file(cfg.forbidden_path, driver="GPKG")
-        print(f"Saved {len(combined)} forbidden zones")
-    else:
+
+    features = overpass_call(ox.features_from_polygon, polygon, tags=FORBIDDEN_TAGS)
+    if features.empty:
         # Refuse to write an empty cache: an empty union here would silently
         # disable the forbidden filter for every future run.
         raise ValueError(
@@ -45,6 +47,10 @@ def download_forbidden(cfg: CityConfig, boundary=None):
             "would be a no-op. Run without forbidden zones by removing "
             "data/raw/<city>/forbidden.gpkg if that is intentional."
         )
+    part = f"{cfg.forbidden_path}.part.gpkg"  # .gpkg keeps driver dispatch happy
+    features[["geometry"]].to_file(part, driver="GPKG")
+    os.replace(part, cfg.forbidden_path)
+    print(f"Saved {len(features)} forbidden zones")
 
 
 def load_forbidden(cfg: CityConfig):

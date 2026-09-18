@@ -12,6 +12,7 @@ import geopandas as gpd
 import osmnx as ox
 
 from backend.config import CityConfig, city_config, persist_meta, utm_epsg_from_lonlat
+from backend.data.overpass import overpass_call
 from backend.data.worldpop import iso3_from_place, to_iso3
 from backend.routing.graph import save_graph_slim
 
@@ -55,7 +56,9 @@ def download_roads(cfg: CityConfig, boundary=None):
     if boundary is None:
         boundary = gpd.read_file(cfg.boundary_path)
     print(f"Downloading road network ({cfg.network_type})...")
-    graph = ox.graph_from_polygon(boundary.union_all(), network_type=cfg.network_type)
+    graph = overpass_call(
+        ox.graph_from_polygon, boundary.union_all(), network_type=cfg.network_type
+    )
     save_graph_slim(graph, cfg)  # ~10x smaller than GraphML; graph-level only tags kept
 
 
@@ -64,8 +67,14 @@ def download_hospitals(cfg: CityConfig, boundary=None):
     if boundary is None:
         boundary = gpd.read_file(cfg.boundary_path)
     print(f"Downloading existing facilities ({cfg.facility_tags})...")
-    facilities = ox.features_from_polygon(boundary.union_all(), tags=cfg.facility_tags)
-    cols = [c for c in ["name", "geometry"] if c in facilities.columns]
+    facilities = overpass_call(
+        ox.features_from_polygon, boundary.union_all(), tags=cfg.facility_tags
+    )
+    # Keep the curation-relevant tags, not just names: structural signals
+    # (healthcare/beds/building) are language-independent evidence used by
+    # gis.hospitals._curate; amenity/operator help per-city review.
+    cols = [c for c in ["name", "amenity", "healthcare", "beds", "building",
+                        "operator", "geometry"] if c in facilities.columns]
     if facilities.empty:
         raise ValueError(
             f"No facilities tagged {cfg.facility_tags} found for '{cfg.place}'. "

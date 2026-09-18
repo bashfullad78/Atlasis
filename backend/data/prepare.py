@@ -1,10 +1,10 @@
-"""One-command city bootstrap: ensure every raw artifact exists.
+"""One command city bootstrap: ensure every raw artifact exists.
 
 ``ensure_data(cfg)`` walks the artifact checklist and runs only the builders
 whose outputs are missing, so a fresh city is fetched end to end while warm
 caches trigger zero network calls. Each step is idempotent and resumable:
-if a step fails (e.g. Overpass timeout), rerunning continues where it left
-off instead of re-downloading what is already on disk.
+if a step fails (say, an Overpass timeout), rerunning continues where it left
+off instead of redownloading what is already on disk.
 
 Artifacts, in dependency order:
 
@@ -14,7 +14,7 @@ Artifacts, in dependency order:
 4. ``forbidden.gpkg``                 -- download_forbidden (Overpass)
 5. ``population.parquet``             -- load_population_grid (WorldPop)
 
-Overpass-backed steps retry with exponential backoff. ``probe_data`` reports
+Overpass backed steps retry with exponential backoff. ``probe_data`` reports
 what exists and the expected download sizes before any bytes are fetched.
 """
 import os
@@ -29,7 +29,7 @@ from backend.data.worldpop import country_for_config, density_raster_path
 from backend.routing.graph import has_slim
 
 OVERPASS_RETRIES = 3
-OVERPASS_BACKOFF_S = 20  # server-side rate limits; be conservative
+OVERPASS_BACKOFF_S = 20  # server side rate limits; be conservative
 
 _STEPS = [
     ("boundary.gpkg", "boundary"),
@@ -58,7 +58,7 @@ def missing_artifacts(cfg: CityConfig):
 
 
 def _retry(fn, *args, retries=OVERPASS_RETRIES, backoff_s=OVERPASS_BACKOFF_S):
-    """Retry a network step with linear backoff; re-raise after the last try."""
+    """Retry a network step with linear backoff; reraise after the last try."""
     for attempt in range(1, retries + 1):
         try:
             return fn(*args)
@@ -71,13 +71,19 @@ def _retry(fn, *args, retries=OVERPASS_RETRIES, backoff_s=OVERPASS_BACKOFF_S):
             time.sleep(wait)
 
 
-def ensure_data(cfg: CityConfig, probe=False):
+def ensure_data(cfg: CityConfig, probe=False, skip_forbidden=False):
     """Fetch every missing raw artifact for the city; print a plan first.
 
     Warm-cache runs make zero network calls. Returns the list of artifact
-    kinds that were built by this call.
+    kinds that were built by this call. ``skip_forbidden`` defers the
+    forbidden-zones step (Overpass instability workaround); without it the
+    pipeline later refuses to run its forbidden filter.
     """
     needed = missing_artifacts(cfg)
+    if skip_forbidden and "forbidden" in needed:
+        needed.remove("forbidden")
+        print("--skip-forbidden set: deferring forbidden zones; the pipeline "
+              "will refuse its forbidden filter until they are fetched.")
     if not needed:
         print("All data cached, nothing to download.")
         return []
@@ -94,6 +100,8 @@ def ensure_data(cfg: CityConfig, probe=False):
         os.replace(part, cfg.boundary_path)
         built.append("boundary")
         needed = missing_artifacts(cfg)  # re-check: meta/boundary now exist
+        if skip_forbidden and "forbidden" in needed:
+            needed.remove("forbidden")
 
     # Geocode once, reuse the polygon for every Overpass step.
     if boundary is None and any(k in needed for k in ("roads", "hospitals", "forbidden")):
@@ -136,7 +144,7 @@ def probe_data(cfg: CityConfig):
                       "(~1-45 MB depending on country; shared across its cities)")
         except (ValueError, OSError) as e:
             # Country unresolved (e.g. offline, ambiguous place). The probe
-            # must still work: size reporting is best-effort.
+            # must still work: size reporting is best effort.
             print(f"  population: density raster will be downloaded "
                   f"(size unknown: {e})")
     if not needed:
