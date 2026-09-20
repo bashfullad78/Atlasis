@@ -1,7 +1,7 @@
 """Accessibility measurement (baseline vs. with recommended sites added).
 
-Uses one multi-source Dijkstra per scenario on the reversed graph (paths model
-person -> facility) instead of one shortest-path query per facility per cell.
+Uses one multi source Dijkstra per scenario on the reversed graph (paths model
+person to facility) instead of one shortestpath query per facility per cell.
 """
 import networkx as nx
 
@@ -14,7 +14,7 @@ from backend.objectives.coverage import (
 
 
 def _weighted_time_stats(times_pops):
-    """Population-weighted min/median/mean/max of travel times (seconds)."""
+    """Population weighted min/median/mean/max of travel times (seconds)."""
     total_pop = sum(p for _, p in times_pops)
     min_t = min(t for t, _ in times_pops)
     max_t = max(t for t, _ in times_pops)
@@ -33,7 +33,7 @@ def _weighted_time_stats(times_pops):
 
 
 def accessibility_stats(source_geometries, graph, pop_gdf, threshold=TRAVEL_TIME_THRESHOLD):
-    """Population-weighted accessibility to the nearest of ``source_geometries``."""
+    """Population weighted accessibility to the nearest of ``source_geometries``."""
     graph = add_travel_times(graph)
     graph_rev = graph.reverse(copy=True)
 
@@ -107,6 +107,20 @@ def compute_optimized(top_candidates, hospitals, graph, pop_gdf, threshold=TRAVE
     return accessibility_stats(geometries, graph, pop_gdf, threshold=threshold)
 
 
+def compute_optimized_set(selection, hospitals, graph, pop_gdf,
+                          threshold=TRAVEL_TIME_THRESHOLD):
+    """Accessibility with existing facilities + the jointly selected site set.
+
+    ``selection`` is the pipeline's selection dict: ``candidates`` is the
+    scored candidate frame (row order = MCLP matrix row order) and
+    ``selected`` the chosen candidate row indices from ``optimizers.mclp``.
+    """
+    candidates = selection["candidates"]
+    added = [candidates.iloc[j].geometry for j in selection["selected"]]
+    geometries = list(hospitals.geometry) + added
+    return accessibility_stats(geometries, graph, pop_gdf, threshold=threshold)
+
+
 def compare_baseline_optimized(baseline, optimized):
     delta_coverage = optimized["coverage_pct"] - baseline["coverage_pct"]
     delta_mean = baseline["mean_travel_time_min"] - optimized["mean_travel_time_min"]
@@ -120,12 +134,12 @@ def compare_baseline_optimized(baseline, optimized):
         verdict = "✓ Meaningful improvement"
     elif baseline["coverage_pct"] >= 99.9:
         verdict = (
-            "⚠ City already ~fully covered within the threshold; no site can add people. "
+            "⚠ City already ~fully covered within the threshold — no site can add people. "
             "Lower the threshold (e.g. 5-min emergency access), restrict the facility class, "
             "or model capacity instead of mere presence."
         )
     else:
-        verdict = "⚠ Marginal: try a denser candidate grid or looser constraints"
+        verdict = "⚠ Marginal — try a denser candidate grid or looser constraints"
     print(f"  {verdict}")
 
     return {
@@ -146,4 +160,4 @@ if __name__ == "__main__":
     cfg = city_config()
     pop_gdf = load_population_grid(cfg)
     baseline = compute_baseline(load_hospitals(cfg), load_graph(cfg), pop_gdf)
-    print_stats("Baseline Accessibility (existing facilities only)", baseline)
+    print_stats("Baseline Accessibility — existing facilities only", baseline)

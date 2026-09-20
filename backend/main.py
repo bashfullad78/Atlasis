@@ -29,6 +29,24 @@ def main():
                    help="report which data exists / would be downloaded, then exit")
     p.add_argument("--no-download", action="store_true",
                    help="never fetch data; fail if anything is missing")
+    p.add_argument("--skip-forbidden", action="store_true",
+                   help="run without the forbidden-zones filter and defer fetching "
+                        "it (Overpass instability workaround; results not comparable "
+                        "to filtered runs)")
+    p.add_argument("--num-sites", type=int, default=None,
+                   help="jointly select this many sites (MCLP; default 1, which "
+                        "matches the independent ranking)")
+    p.add_argument("--mode", choices=["greedy", "exact", "both"], default="greedy",
+                   help="MCLP solver: greedy (>= 1-1/e guarantee), exact (PuLP/CBC "
+                        "MILP benchmark), or both (reports the greedy gap)")
+    p.add_argument("--uncertainty", action="store_true",
+                   help="report jackknife + bootstrap sensitivity intervals for the "
+                        "headline figures (total population, baseline coverage, "
+                        "best gain, MCLP objective)")
+    p.add_argument("--n-boot", type=int, default=200,
+                   help="bootstrap replicates for --uncertainty (default 200)")
+    p.add_argument("--seed", type=int, default=0,
+                   help="RNG seed for --uncertainty bootstrap (default 0)")
     a = p.parse_args()
 
     cfg = city_config(a.city, a.place, country=a.country)
@@ -38,15 +56,20 @@ def main():
 
     if a.no_download:
         missing = missing_artifacts(cfg)
+        if a.skip_forbidden:
+            missing = [m for m in missing if m != "forbidden"]
         if missing:
             sys.exit(
                 f"Missing {', '.join(missing)} for '{cfg.slug}' and --no-download "
                 f"is set. Rerun without it (or with --probe) to fetch them."
             )
     else:
-        ensure_data(cfg)
+        ensure_data(cfg, skip_forbidden=a.skip_forbidden)
 
-    run_pipeline(cfg, spacing_m=a.spacing, top_n=a.top_n, threshold=a.threshold)
+    run_pipeline(cfg, spacing_m=a.spacing, top_n=a.top_n, threshold=a.threshold,
+                 skip_forbidden=a.skip_forbidden, num_sites=a.num_sites,
+                 mode=a.mode, uncertainty=a.uncertainty, n_boot=a.n_boot,
+                 seed=a.seed)
 
 
 if __name__ == "__main__":

@@ -15,6 +15,7 @@ osmnx==2.1.1
 packaging==26.3
 pandas==3.0.5
 pluggy==1.6.0
+pulp==3.3.2
 pyarrow==25.0.1
 pycountry==26.2.16
 pydantic==2.13.4

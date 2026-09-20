@@ -1,5 +1,5 @@
 """Candidate scoring: population that a site would *newly* bring within the
-drive-time threshold, given facilities that already exist (marginal coverage,
+drive time threshold, given facilities that already exist (marginal coverage,
 so already-served areas don't win)."""
 import geopandas as gpd
 import networkx as nx
@@ -39,18 +39,10 @@ def nearest_nodes_unique(geometries, graph):
 
 
 def population_by_node(pop_gdf, graph):
-    """Aggregate population by nearest graph node.
-
-    Snapping is vectorized (one KD-tree query for all cells): the 100 m
-    count raster yields ~10^4-10^5 cells per city, too many for per-row
-    queries.
-    """
-    nodes = ox.distance.nearest_nodes(
-        graph, pop_gdf.geometry.x.values, pop_gdf.geometry.y.values
-    )
-    pops = pop_gdf["population"].astype(float).values
+    """Aggregate population by nearest graph node."""
     node_pop = {}
-    for node, pop in zip(nodes, pops):
+    for geom, pop in zip(pop_gdf.geometry, pop_gdf["population"].astype(float)):
+        node = ox.distance.nearest_nodes(graph, geom.x, geom.y)
         node_pop[node] = node_pop.get(node, 0.0) + pop
     return node_pop
 
@@ -65,9 +57,24 @@ def _reachable_from(graph_rev, source_node, threshold):
     )
 
 
+def score_type_label(threshold):
+    """The score_type string recorded on scored candidates."""
+    return (
+        f"population_new_within_{threshold // 60}min"
+        if threshold % 60 == 0
+        else f"population_new_within_{threshold}s"
+    )
+
+
 def score_all_candidates_population(candidates, pop_gdf, graph, hospitals=None,
                                     threshold=TRAVEL_TIME_THRESHOLD):
-    """Score sites by NEW people within the threshold; adds score/score_total/score_type."""
+    """Score sites by NEW people within the threshold; adds score/score_total/score_type.
+
+    Legacy per-candidate path: one Dijkstra per candidate. The pipeline now
+    scores from the MCLP coverage matrix instead (same numbers, one pass);
+    this function is kept as the reference implementation that the matrix
+    path is regression-tested against.
+    """
     graph = add_travel_times(graph)
     graph_rev = graph.reverse(copy=True)
 
@@ -104,9 +111,23 @@ def score_all_candidates_population(candidates, pop_gdf, graph, hospitals=None,
     scored = candidates.copy()
     scored["score"] = scores
     scored["score_total"] = totals
-    scored["score_type"] = (
-        f"population_new_within_{threshold // 60}min"
-        if threshold % 60 == 0
-        else f"population_new_within_{threshold}s"
-    )
+    scored["score_type"] = score_type_label(threshold)
+    return scored
+
+
+def score_from_matrix(inst, threshold=None):
+    """Derive the per-candidate scores from an MCLP coverage matrix.
+
+    The marginal score of candidate j is exactly its coverage row dotted with
+    the population weights: ``score = A[j] @ w_new`` and
+    ``score_total = A[j] @ w_total``. One matrix pass replaces the
+    per-candidate Dijkstra loop; equality with
+    ``score_all_candidates_population`` is regression-tested
+    (tests/test_mclp.py::test_matrix_scoring_matches_legacy).
+    """
+    scored = inst.candidates.copy()
+    scored["score"] = inst.A @ inst.w_new
+    scored["score_total"] = inst.A @ inst.w_total
+    scored["score_type"] = score_type_label(
+        inst.threshold if threshold is None else threshold)
     return scored
