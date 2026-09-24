@@ -1,0 +1,23 @@
+cff-version: 1.2.0
+message: "If you use ATLASIS, please cite it using this metadata."
+title: ATLASIS
+abstract: >-
+  An open hospital-siting and accessibility engine: joint maximal-coverage
+  location (MCLP) selection of new facilities, an enhanced two-step floating
+  catchment area (E2SFCA) index, and uncertainty reporting, computed along
+  real road-network drive times from OpenStreetMap and WorldPop data.
+authors:
+  - alias: bashfullad78
+    family-names: Zafar
+version: 0.3.0
+date-released: "2026-09-25"
+license: MIT
+repository-code: "https://github.com/bashfullad78/Atlasis"
+keywords:
+  - healthcare accessibility
+  - maximal covering location problem
+  - E2SFCA
+  - OpenStreetMap
+  - WorldPop
+  - GIS
+  - universal health coverage
