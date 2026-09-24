@@ -183,10 +183,19 @@ CITY_EXPECTED = {"mysuru": 85, "heidelberg": 32, "freiburg": 9, "krakow": 26}
 
 @pytest.mark.parametrize("slug,expected", sorted(CITY_EXPECTED.items()))
 def test_real_cache_counts_unchanged(slug, expected):
-    """Documented curated counts survive the hardened semantics exactly."""
+    """Documented curated counts survive the hardened semantics exactly.
+
+    Skips where the gitignored data/raw cache is absent:
+    the pin is a war -cache regression guard.
+    """
+    from pathlib import Path
+
     from backend.config import city_config
     from backend.gis.hospitals import load_hospitals
 
+    cache = Path("data/raw") / slug / "hospitals.gpkg"
+    if not cache.exists():
+        pytest.skip(f"real cache absent: {cache} (fresh checkout / CI)")
     hospitals = load_hospitals(city_config(slug))
     assert len(hospitals) == expected, (
         f"{slug}: curated count drifted from the documented {expected}")
