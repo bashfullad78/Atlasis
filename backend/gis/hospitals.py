@@ -25,7 +25,7 @@ Shipped semantics (language-independent):
   the misleading ``dropped 0``.
 * ``backend.data.download`` preserves ``amenity/healthcare/beds/building/
   operator`` so future fetches carry the evidence. Existing caches keep
-  their documented counts exactly (85 / 32 / 9 / 26).
+  their documented counts exactly (85 / 32 / 9 / 27).
 
 Keep this module ASCII-only: every name heuristic must live in the English
 substring lists below, and no per-language name may be hardcoded here. The
@@ -52,7 +52,6 @@ HOSPITAL_EXCLUDE_NAMES = [
     "all india institute of speech and hearing", "rheumacare",
     "dr. jyothis health care", "health center",
 ]
-HOSPITAL_KEEP_NAMES = []  # force keep despite a blocklisted name
 
 # Generic tags are context, not inpatient evidence (see module docstring).
 STRUCTURAL_REVIEW_COLS = ("healthcare", "beds", "building")
@@ -88,17 +87,17 @@ def _curate(hospitals):
     evidence (polygon / beds > 0) overrides them in any language; explicit
     excludes stay absolute. Counts printed are the rows actually dropped.
     """
-    names = hospitals["name"].fillna("").astype(str)
+    names = (hospitals.get("name", pd.Series("", index=hospitals.index))
+             .fillna("").astype(str))
     lower = names.str.lower()
     is_poly = hospitals.geometry.apply(lambda g: g.geom_type in ("Polygon", "MultiPolygon"))
 
     rescue, review = _has_structural_evidence(hospitals, is_poly)
     blocked = lower.apply(lambda s: any(t in s for t in HOSPITAL_NAME_BLOCKLIST)) & ~is_poly
-    forced = lower.apply(lambda s: any(t in s for t in HOSPITAL_KEEP_NAMES))
     excluded = lower.apply(lambda s: any(t in s for t in HOSPITAL_EXCLUDE_NAMES))
 
     n_input = len(hospitals)
-    hospitals = hospitals.loc[~excluded & (is_poly | forced | rescue | ~blocked)].copy()
+    hospitals = hospitals.loc[~excluded & (is_poly | rescue | ~blocked)].copy()
     n_dropped_mistagged = n_input - len(hospitals)
 
     # Near duplicates: same name, centroids within 200 m (frame CRS units).
@@ -126,6 +125,23 @@ def _curate(hospitals):
     return hospitals
 
 
+def beds_capacities(hospitals, fallback=1.0):
+    """Per-facility capacity for 2SFCA: numeric ``beds > 0`` where the cache
+    has them, ``fallback`` (uniform 1 = presence-only) elsewhere. With no
+    beds column at all this returns all-fallback, i.e. exactly the previous
+    presence-only semantics.
+
+    v0.4 wiring (README limitation "capacity not modeled"): ``download``
+    preserves OSM ``beds``, so cached facilities carry real capacity when
+    the city has it.
+    """
+    if "beds" in hospitals.columns:
+        beds = pd.to_numeric(hospitals["beds"], errors="coerce")
+        return beds.where(beds > 0).fillna(fallback).to_numpy(dtype=float)
+    import numpy as np
+    return np.full(len(hospitals), float(fallback))
+
+
 def load_hospitals(cfg: CityConfig):
     """Existing hospitals as point centroids in the city's UTM zone."""
     if not os.path.exists(cfg.hospitals_path):
@@ -133,6 +149,11 @@ def load_hospitals(cfg: CityConfig):
     hospitals = gpd.read_file(cfg.hospitals_path).to_crs(cfg.crs)
     hospitals = hospitals[hospitals.geometry.notnull()]
     hospitals = _curate(hospitals)
+    hospitals["capacity"] = beds_capacities(hospitals)
+    if any(hospitals["capacity"] > 1):
+        n_beds = int((hospitals["capacity"] > 1).sum())
+        print(f"      Bed capacity modeled: {n_beds}/{len(hospitals)} "
+              f"facilities weighted by OSM beds (rest presence-only)")
     hospitals["geometry"] = hospitals.geometry.centroid
     return hospitals
 
