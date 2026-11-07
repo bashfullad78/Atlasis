@@ -5,7 +5,8 @@ import os
 import geopandas as gpd
 import osmnx as ox
 
-from backend.config import CityConfig, city_config
+from backend.config import (CityConfig, atomic_replace, city_config,
+                            persist_meta, utc_now_iso)
 from backend.data.overpass import overpass_call
 
 # One combined Overpass query: osmnx unions tag groups within a single
@@ -49,7 +50,8 @@ def download_forbidden(cfg: CityConfig, boundary=None):
         )
     part = f"{cfg.forbidden_path}.part.gpkg"  # .gpkg keeps driver dispatch happy
     features[["geometry"]].to_file(part, driver="GPKG")
-    os.replace(part, cfg.forbidden_path)
+    atomic_replace(part, cfg.forbidden_path)
+    persist_meta(cfg, fetched_forbidden=utc_now_iso())
     print(f"Saved {len(features)} forbidden zones")
 
 

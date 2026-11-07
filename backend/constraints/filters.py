@@ -17,13 +17,19 @@ def filter_too_close_to_existing(candidates, hospitals, cfg: CityConfig):
 
 
 def filter_far_from_roads(candidates, graph, cfg: CityConfig):
-    nodes, _ = ox.graph_to_gdfs(graph)
-    nodes = nodes.to_crs(candidates.crs)
-    road_union = nodes.union_all()
-    mask = candidates.geometry.apply(
-        lambda p: p.distance(road_union) <= cfg.min_dist_road_m
-    )
-    filtered = candidates.loc[mask].copy()
+    _, edges = ox.graph_to_gdfs(graph)
+    edges = edges.to_crs(candidates.crs)
+    # sjoin_nearest uses the spatial index (the old union_all() + per-candidate
+    # distance loop measured 10.5 s for 5k x 50k vs 0.07 s) and measures
+    # against road SEGMENTS, not just nodes: a candidate 100 m from the middle
+    # of a long segment is near a road.
+    left = candidates.reset_index()
+    idx_col = left.columns[0]
+    near = gpd.sjoin_nearest(
+        left, edges[["geometry"]], how="inner",
+        max_distance=cfg.min_dist_road_m)
+    # A candidate near several edges appears once per matching edge.
+    filtered = candidates.loc[near[idx_col].unique()].copy()
     print(f"After road filter: {len(filtered)} / {len(candidates)} candidates remain")
     return filtered
 
