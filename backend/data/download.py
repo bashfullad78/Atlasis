@@ -11,7 +11,8 @@ import os
 import geopandas as gpd
 import osmnx as ox
 
-from backend.config import CityConfig, city_config, persist_meta, utm_epsg_from_lonlat
+from backend.config import (CityConfig, atomic_replace, city_config,
+                            persist_meta, utc_now_iso, utm_epsg_from_lonlat)
 from backend.data.overpass import overpass_call
 from backend.data.worldpop import iso3_from_place, to_iso3
 from backend.routing.graph import save_graph_slim
@@ -28,7 +29,7 @@ def _atomic_gdf_save(gdf, path):
     """Write a GeoDataFrame to GPKG via a temp file + atomic rename."""
     part = f"{path}.part.gpkg"  # .gpkg keeps driver dispatch happy
     gdf.to_file(part, driver="GPKG")
-    os.replace(part, path)
+    atomic_replace(part, path)
 
 
 def geocode_boundary(cfg: CityConfig):
@@ -46,7 +47,8 @@ def geocode_boundary(cfg: CityConfig):
     epsg = utm_epsg_from_lonlat(c.x, c.y)
     iso3 = _resolve_iso3(boundary, cfg.place)
     persist_meta(cfg, slug=cfg.slug, place=cfg.place, utm_epsg=epsg,
-                 iso_country=iso3, network_type=cfg.network_type)
+                 iso_country=iso3, network_type=cfg.network_type,
+                 fetched_boundary=utc_now_iso())
     print(f"✓ Boundary + meta saved (UTM EPSG:{epsg}, country {iso3 or 'unresolved'})")
     return boundary
 
@@ -60,6 +62,7 @@ def download_roads(cfg: CityConfig, boundary=None):
         ox.graph_from_polygon, boundary.union_all(), network_type=cfg.network_type
     )
     save_graph_slim(graph, cfg)  # ~10x smaller than GraphML; graph-level only tags kept
+    persist_meta(cfg, fetched_roads=utc_now_iso())
 
 
 def download_hospitals(cfg: CityConfig, boundary=None):
@@ -81,6 +84,7 @@ def download_hospitals(cfg: CityConfig, boundary=None):
             f"The pipeline needs at least one existing facility."
         )
     _atomic_gdf_save(facilities[cols], cfg.hospitals_path)
+    persist_meta(cfg, fetched_hospitals=utc_now_iso())
     print(f"✓ {len(facilities)} facilities saved")
 
 

@@ -33,7 +33,10 @@ FALLBACK_MIRRORS = ["https://overpass.kumi.systems/api"]
 CONNECT_TIMEOUT_S = 10   # dead mirror: TCP connect gives up here, not at 180 s
 READ_TIMEOUT_S = 170     # live mirror: full budget for slow-but-working queries
 SERVER_TIMEOUT_S = 180   # server-side [timeout:...] for the query itself
-STATUS_PROBE_TIMEOUT_S = (5, 10)
+# probe read 60 s: under overload /status itself answers in 30-50 s while
+# serving data fine (2026-10-22 freiburg tiny query OK at 49 s after a 31s
+# status). A 10 s probe rejected healthy-but-slow mirrors.
+STATUS_PROBE_TIMEOUT_S = (5, 60)
 
 _overpass_mirrors_cache = None
 _last_good = None          # last mirror that served a successful call
@@ -89,21 +92,30 @@ def probe_mirror(base_url):
 def overpass_call(fn, *args, **kwargs):
     """Run ``fn`` (any osmnx Overpass call) with mirror failover.
 
-    Probes mirrors in order, runs ``fn`` on the first healthy one, and fails
-    over on any exception. The last-good mirror is remembered (module state)
-    and tried first on subsequent calls within the same session.
+    The mirror that served the previous call is trusted outright (no status
+    probe): probing itself is request traffic the endpooints throttle, and a
+    dead last-good mirror costs us one failed call instead of a probe storm.
+    Otherwise mirrors are probed in order and ``fn`` runs on the first
+    healthy one; any exception fails over to the next mirror. The last-good
+    mirror is remembered for subsequent calls in the same session.
 
     Returns whatever ``fn`` returns; raises ConnectionError if every mirror
     fails.
     """
     global _last_good
     mirrors = overpass_mirrors()
-    if _last_good in mirrors:
-        mirrors = [_last_good] + [m for m in mirrors if m != _last_good]
 
     apply_timeouts()
     last_err = None
-    for mirror in mirrors:
+    if _last_good in mirrors:
+        ox.settings.overpass_url = _last_good
+        try:
+            return fn(*args, **kwargs)
+        except Exception as e:
+            last_err = e
+            print(f"  ✗ Overpass request failed on last-good {_last_good}: {e}")
+
+    for mirror in (m for m in mirrors if m != _last_good):
         try:
             healthy = probe_mirror(mirror)
         except Exception as e:  # probe problems are failover signals

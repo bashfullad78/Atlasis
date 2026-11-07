@@ -71,11 +71,18 @@ def find_spent_rasters():
                      if os.path.isdir(d) and os.path.basename(d) != "worldpop"]
         missing_cache = []
         for d in city_dirs:
-            meta = os.path.join(d, "meta.json")
-            with open(meta) as f:
-                if json.load(f).get("iso_country") == iso3 \
-                        and not os.path.exists(os.path.join(d, "population.parquet")):
-                    missing_cache.append(d)
+            meta_path = os.path.join(d, "meta.json")
+            if not os.path.exists(meta_path):
+                continue  # half-built city (interrupted bootstrap): no raster owed yet
+            try:
+                with open(meta_path) as f:
+                    iso_country = json.load(f).get("iso_country")
+            except ValueError:
+                print(f"  (skipping {d}: unreadable meta.json)")
+                continue
+            if iso_country == iso3 \
+                    and not os.path.exists(os.path.join(d, "population.parquet")):
+                missing_cache.append(d)
         if not missing_cache:
             spent.extend(tifs)
     return spent

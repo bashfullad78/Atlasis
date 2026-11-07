@@ -20,7 +20,9 @@ what exists and the expected download sizes before any bytes are fetched.
 import os
 import time
 
-from backend.config import CityConfig
+import requests
+
+from backend.config import CityConfig, atomic_replace
 from backend.constraints.forbidden import download_forbidden
 from backend.data.download import (download_hospitals, download_roads,
                                    geocode_boundary)
@@ -58,11 +60,18 @@ def missing_artifacts(cfg: CityConfig):
 
 
 def _retry(fn, *args, retries=OVERPASS_RETRIES, backoff_s=OVERPASS_BACKOFF_S):
-    """Retry a network step with linear backoff; reraise after the last try."""
+    """Retry a network step with linear backoff; reraise after the last try.
+
+    Only network failures are retried (requests errors plus socket-level
+    OSError, which osmnx/Overpass timeouts surface as). Deliberate
+    ValueErrors ("No facilities tagged...", "No forbidden geometry found")
+    are permanent answers from the server: retrying them wastes a minute
+    and hammers the free shared service.
+    """
     for attempt in range(1, retries + 1):
         try:
             return fn(*args)
-        except Exception as e:
+        except (requests.RequestException, OSError) as e:
             if attempt == retries:
                 raise
             wait = backoff_s * attempt
@@ -97,7 +106,7 @@ def ensure_data(cfg: CityConfig, probe=False, skip_forbidden=False):
         os.makedirs(cfg.raw_dir, exist_ok=True)
         part = f"{cfg.boundary_path}.part.gpkg"  # .gpkg keeps driver dispatch happy
         boundary.to_file(part, driver="GPKG")
-        os.replace(part, cfg.boundary_path)
+        atomic_replace(part, cfg.boundary_path)
         built.append("boundary")
         needed = missing_artifacts(cfg)  # re-check: meta/boundary now exist
         if skip_forbidden and "forbidden" in needed:

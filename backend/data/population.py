@@ -16,7 +16,8 @@ import pandas as pd
 import rasterio
 from rasterio.mask import mask as rio_mask
 
-from backend.config import CityConfig, city_config, persist_meta
+from backend.config import (CityConfig, city_config, persist_meta,
+                            utc_now_iso)
 from backend.data.worldpop import country_for_config, density_url, ensure_density_raster
 
 NODATA = -99999.0
@@ -64,10 +65,12 @@ def _write_cache(cfg: CityConfig, iso3):
     os.makedirs(cfg.raw_dir, exist_ok=True)
     df.to_parquet(cfg.pop_cache_path, index=False)
     # Record exactly which product produced these counts (provenance for
-    # reproducibility; also persists iso_country on first build).
+    # reproducibility; also persists iso_country on first build) and when,
+    # so docs figures and the UI can report data-freshness.
     persist_meta(cfg, iso_country=iso3,
                  pop_product="worldpop_density_1km_2020",
-                 pop_source=density_url(iso3))
+                 pop_source=density_url(iso3),
+                 fetched_population=utc_now_iso())
     print(
         f"✓ Population cache saved: {cfg.pop_cache_path} "
         f"({len(df)} cells, ~{df['population'].sum():,.0f} people, "

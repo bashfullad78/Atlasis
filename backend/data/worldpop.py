@@ -27,7 +27,7 @@ import unicodedata
 import pycountry
 import requests
 
-from backend.config import DATA_DIR, load_meta, persist_meta
+from backend.config import (DATA_DIR, atomic_replace, load_meta, persist_meta)
 
 WP_BASE = "https://data.worldpop.org"
 WP_DENSITY_DATASET = "GIS/Population_Density/Global_2000_2020_1km/2020"
@@ -138,7 +138,7 @@ def ensure_density_raster(iso3, retries=3):
                         done += len(chunk)
                         if total:
                             print(f"\r  {done / 1e6:.1f} / {total / 1e6:.1f} MB", end="")
-            os.replace(part_path, path)  # atomic on success
+            atomic_replace(part_path, path)  # atomic on success
             print(f"\n✓ Saved to {path}")
             return path
         except (requests.RequestException, RuntimeError) as e:
