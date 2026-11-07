@@ -1,9 +1,4 @@
 # CI for the offline test suite.
-#
-# Runs on every push to main and every pull request. The suite is offline by
-# design; the four real-cache pins (tests/test_hospital_curation_kyoto.py)
-# skip automatically when the gitignored data/raw caches are absent (fresh
-# checkout) and run wherever the caches exist.
 
 name: ci
 
