@@ -7,15 +7,28 @@ import networkx as nx
 
 from backend.objectives.coverage import (
     TRAVEL_TIME_THRESHOLD,
-    add_travel_times,
+    add_travel_times, reverse_with_travel_times,
     nearest_nodes_unique,
     population_by_node,
 )
 
 
 def _weighted_time_stats(times_pops):
-    """Population weighted min/median/mean/max of travel times (seconds)."""
+    """Population weighted min/median/mean/max of travel times (seconds).
+
+    Zeroed stats for an empty input: no population is reachable by road at
+    all (disconnected road component, bad boundary). The 0% coverage this
+    produces is the correct measurement, not an error.
+    """
+    if not times_pops:
+        return {"min_s": 0.0, "median_s": 0.0, "mean_s": 0.0, "max_s": 0.0,
+                "pop_at_zero": 0.0}
     total_pop = sum(p for _, p in times_pops)
+    if total_pop <= 0:
+        # Reachable nodes exist but hold no population: same measurement as
+        # "nothing reachable" for every reported figure.
+        return {"min_s": 0.0, "median_s": 0.0, "mean_s": 0.0, "max_s": 0.0,
+                "pop_at_zero": 0.0}
     min_t = min(t for t, _ in times_pops)
     max_t = max(t for t, _ in times_pops)
     mean_t = sum(t * p for t, p in times_pops) / total_pop
@@ -32,10 +45,16 @@ def _weighted_time_stats(times_pops):
             "max_s": max_t, "pop_at_zero": pop_at_zero}
 
 
-def accessibility_stats(source_geometries, graph, pop_gdf, threshold=TRAVEL_TIME_THRESHOLD):
-    """Population weighted accessibility to the nearest of ``source_geometries``."""
+def accessibility_stats(source_geometries, graph, pop_gdf,
+                        threshold=TRAVEL_TIME_THRESHOLD, graph_rev=None):
+    """Population weighted accessibility to the nearest of ``source_geometries``.
+
+    ``graph_rev``: optional prebuilt reversed travel-time graph from
+    ``reverse_with_travel_times`` (the pipeline passes it so the reverse copy
+    and KD-tree work happen once per run instead of per scenario).
+    """
     graph = add_travel_times(graph)
-    graph_rev = graph.reverse(copy=True)
+    graph_rev = graph_rev if graph_rev is not None else graph.reverse(copy=True)
 
     source_nodes = nearest_nodes_unique(source_geometries, graph_rev)
     if not source_nodes:
@@ -95,20 +114,24 @@ def print_stats(title, s, threshold=TRAVEL_TIME_THRESHOLD):
         )
 
 
-def compute_baseline(hospitals, graph, pop_gdf, threshold=TRAVEL_TIME_THRESHOLD):
+def compute_baseline(hospitals, graph, pop_gdf, threshold=TRAVEL_TIME_THRESHOLD,
+                     graph_rev=None):
     """Accessibility using only the facilities that already exist."""
-    return accessibility_stats(hospitals.geometry, graph, pop_gdf, threshold=threshold)
+    return accessibility_stats(hospitals.geometry, graph, pop_gdf,
+                               threshold=threshold, graph_rev=graph_rev)
 
 
-def compute_optimized(top_candidates, hospitals, graph, pop_gdf, threshold=TRAVEL_TIME_THRESHOLD):
+def compute_optimized(top_candidates, hospitals, graph, pop_gdf,
+                      threshold=TRAVEL_TIME_THRESHOLD, graph_rev=None):
     """Accessibility with existing facilities + the Rank-1 recommended site."""
     best = top_candidates.iloc[0]
     geometries = list(hospitals.geometry) + [best.geometry]
-    return accessibility_stats(geometries, graph, pop_gdf, threshold=threshold)
+    return accessibility_stats(geometries, graph, pop_gdf,
+                               threshold=threshold, graph_rev=graph_rev)
 
 
 def compute_optimized_set(selection, hospitals, graph, pop_gdf,
-                          threshold=TRAVEL_TIME_THRESHOLD):
+                          threshold=TRAVEL_TIME_THRESHOLD, graph_rev=None):
     """Accessibility with existing facilities + the jointly selected site set.
 
     ``selection`` is the pipeline's selection dict: ``candidates`` is the
@@ -118,7 +141,8 @@ def compute_optimized_set(selection, hospitals, graph, pop_gdf,
     candidates = selection["candidates"]
     added = [candidates.iloc[j].geometry for j in selection["selected"]]
     geometries = list(hospitals.geometry) + added
-    return accessibility_stats(geometries, graph, pop_gdf, threshold=threshold)
+    return accessibility_stats(geometries, graph, pop_gdf,
+                               threshold=threshold, graph_rev=graph_rev)
 
 
 def compare_baseline_optimized(baseline, optimized):

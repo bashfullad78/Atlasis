@@ -35,7 +35,7 @@ import osmnx as ox
 
 from backend.objectives.coverage import (
     TRAVEL_TIME_THRESHOLD,
-    add_travel_times,
+    add_travel_times, reverse_with_travel_times,
     population_by_node,
 )
 
@@ -53,17 +53,19 @@ def gaussian_weight(times_s, beta_min):
 
 
 def compute_2sfca(facilities, graph, pop_gdf, threshold=TRAVEL_TIME_THRESHOLD,
-                  beta_min=None, capacities=None):
+                  beta_min=None, capacities=None, graph_rev=None):
     """E2SFCA accessibility per population cell plus city-level summary.
 
     ``facilities``: point geometries in the graph's (projected) CRS --
     existing hospitals, or existing + selected sites for the optimized view.
     ``capacities``: optional per-facility capacity (e.g. beds); uniform 1s
     model presence only, which is the pipeline's current capability.
+    ``graph_rev``: optional prebuilt reversed travel-time graph
+    (``reverse_with_travel_times``) shared across the run's scenarios.
     Returns a dict with per-cell scores (``cell_scores``) and summaries.
     """
     graph = add_travel_times(graph)
-    graph_rev = graph.reverse(copy=True)
+    graph_rev = graph_rev if graph_rev is not None else graph.reverse(copy=True)
 
     node_pop = population_by_node(pop_gdf, graph_rev)
     pop_ids = np.array(sorted(node_pop))
