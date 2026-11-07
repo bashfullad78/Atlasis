@@ -1,12 +1,30 @@
 """Per-city configuration. All city-specific logic flows through CityConfig."""
 import json
 import os
+import re
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 
 import geopandas as gpd
 import pyproj
 
 DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "../data")
+
+FIGURE_MANIFEST_PATH = os.path.join(
+    DATA_DIR, "../docs/figures/manifest.json")
+
+
+def utc_now_iso():
+    """UTC timestamp for data-freshness stamps (traceable_meta)."""
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+def newest_data_time(cfg: CityConfig) -> "datetime | None":
+    """Most recent artifact fetch recorded in meta.json, or None pre-stamps."""
+    stamps = [v for k, v in load_meta(cfg).items() if k.startswith("fetched_")]
+    if not stamps:
+        return None
+    return max(datetime.fromisoformat(s) for s in stamps)
 
 
 def utm_epsg_from_lonlat(lon, lat):
@@ -21,6 +39,12 @@ def city_config(slug="mysuru", place=None, country=None):
     ``country`` is an optional ISO 3166-1 alpha-3 code (e.g. IND, UGA, DEU);
     it is auto-resolved from geocoding or meta.json when omitted.
     """
+    # The slug is a filesystem path component (data/raw/<slug>); without this
+    # check a CLI/API-supplied slug could escape the data directory.
+    if not re.fullmatch(r"[a-z0-9][a-z0-9_-]*", slug):
+        raise ValueError(
+            f"Invalid city slug {slug!r}: must be lowercase letters/digits/"
+            f"'-'/'_' (it names the data/raw/ directory).")
     return CityConfig(slug=slug, place=place or slug, country=country)
 
 
@@ -115,13 +139,19 @@ def load_meta(cfg: CityConfig) -> dict:
     return {}
 
 
+def atomic_replace(part_path, final_path):
+    """Rename a fully written temp file onto its final path (atomic on POSIX)."""
+    os.replace(part_path, final_path)
+
+
 def persist_meta(cfg: CityConfig, **updates) -> None:
     """Merge ``updates`` into the city's meta.json (never clobbers other keys).
 
     Lets any component that resolves a city fact (UTM zone, country, ...)
     write it back once, so later runs are offline and reproducible. Also
     creates meta.json on first write for cities downloaded before the
-    ``iso_country`` field existed.
+    ``iso_country`` field existed. Written via a temp file + rename, so an
+    interrupt can never leave a truncated meta.json.
     """
     meta = load_meta(cfg)
     changed = {k: v for k, v in updates.items() if meta.get(k) != v}
@@ -129,6 +159,8 @@ def persist_meta(cfg: CityConfig, **updates) -> None:
         return
     meta.update(changed)
     os.makedirs(cfg.raw_dir, exist_ok=True)
-    with open(cfg.meta_path, "w") as f:
+    part = f"{cfg.meta_path}.part"
+    with open(part, "w") as f:
         json.dump(meta, f, indent=2)
+    atomic_replace(part, cfg.meta_path)
     print(f"✓ meta.json updated: {', '.join(sorted(changed))}")
