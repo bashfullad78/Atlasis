@@ -40,6 +40,7 @@ from backend.objectives.coverage import (
     add_travel_times,
     nearest_nodes_unique,
     population_by_node,
+    reverse_with_travel_times,
 )
 
 
@@ -69,15 +70,17 @@ class CoverageInstance:
 
 
 def build_coverage_matrix(candidates, pop_gdf, graph, hospitals=None,
-                          threshold=None):
+                          threshold=None, graph_rev=None):
     """Build the candidate x population-node coverage matrix.
 
     Uses the same reverse-graph reachability and node snapping as the legacy
     per-candidate scorer, so greedy with k = 1 reproduces the Rank-1
     marginal result (regression-tested both directions in tests/test_mclp.py).
+    ``graph_rev``: optional prebuilt reversed travel-time graph
+    (``reverse_with_travel_times``) shared across the run's stages.
     """
     graph = add_travel_times(graph)
-    graph_rev = graph.reverse(copy=True)
+    graph_rev = graph_rev if graph_rev is not None else graph.reverse(copy=True)
 
     node_pop = population_by_node(pop_gdf, graph_rev)
     pop_node_ids = np.array(sorted(node_pop))
@@ -178,6 +181,10 @@ def exact_mclp(inst: CoverageInstance, k, time_limit_s=60):
     """Exact MILP benchmark via PuLP + CBC. Same result dict as greedy.
 
     Raises RuntimeError with install guidance if PuLP is missing.
+    The result carries ``status`` (solver's claim) and ``solved_optimally``
+    (True only when optimality was proven): a time-limited solve still
+    returns a valid feasible set, but it must not be presented as the
+    optimum or used to certify a greedy gap.
     """
     try:
         import pulp
@@ -208,6 +215,15 @@ def exact_mclp(inst: CoverageInstance, k, time_limit_s=60):
 
         solver = pulp.PULP_CBC_CMD(msg=False, timeLimit=time_limit_s)
         status = prob.solve(solver)
+    # CBC hitting the time limit with a feasible solution can still map to
+    # LpStatus "Optimal"; sol_status distinguishes proven (1) from merely
+    # feasible (2).
+    status_name = pulp.LpStatus[status]
+    sol_status = getattr(prob, "sol_status", None)
+    solved_optimally = (
+        status_name == "Optimal"
+        and (sol_status is None or sol_status == pulp.LpSolutionOptimal)
+    )
     covered = np.zeros(P, dtype=bool)
     for i in range(P):
         if y[i].value() is not None and y[i].value() > 0.5:
@@ -221,7 +237,8 @@ def exact_mclp(inst: CoverageInstance, k, time_limit_s=60):
         "gains": None,  # per-site attribution is meaningless for a joint optimum
         "objective": float(inst.w_new[covered].sum()),
         "covered_mask": covered,
-        "status": pulp.LpStatus[status],
+        "status": status_name,
+        "solved_optimally": solved_optimally,
         "seconds": time.perf_counter() - t0,
     }
 
@@ -230,7 +247,9 @@ def select_sites(inst: CoverageInstance, k, mode="greedy"):
     """Run the requested solver(s); returns per-solver result dicts.
 
     mode="both" also returns ``gap_pct``: how far greedy fell short of the
-    exact optimum, relative to it (0.0 when greedy is optimal).
+    exact optimum, relative to it (0.0 when greedy is optimal). The gap is
+    None unless the exact solve PROVED optimality -- a time-limited solve
+    gives a feasible set only, and no certification against it.
     """
     if k <= 0:
         raise ValueError(f"k must be >= 1, got {k}")
@@ -244,8 +263,10 @@ def select_sites(inst: CoverageInstance, k, mode="greedy"):
         exact = exact_mclp(inst, k)
         results["exact"] = exact
         if mode == "both":
-            opt = exact["objective"]
             results["gap_pct"] = (
-                0.0 if opt <= 0 else (opt - greedy["objective"]) / opt * 100.0
+                (0.0 if exact["objective"] <= 0
+                 else (exact["objective"] - greedy["objective"])
+                 / exact["objective"] * 100.0)
+                if exact["solved_optimally"] else None
             )
     return results

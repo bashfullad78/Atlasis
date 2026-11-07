@@ -14,8 +14,12 @@ def get_top_candidates(scored_candidates, top_n=5):
     # Tie-break on total reachable population so all-zero scores stay deterministic.
     by = ["score", "score_total"] if "score_total" in scored_candidates.columns else "score"
     top = scored_candidates.sort_values(by, ascending=False).head(top_n).copy()
-    top["rank"] = range(1, top_n + 1)
-    print(f"\nTop {top_n} candidate sites:")
+    top["rank"] = range(1, len(top) + 1)  # fewer candidates than top_n is valid
+    if len(top) < top_n:
+        print(f"\nTop {len(top)} candidate sites (only {len(top)} candidates "
+              f"survived filtering; {top_n} requested):")
+    else:
+        print(f"\nTop {top_n} candidate sites:")
     for _, row in top.iterrows():
         print(f"  Rank {int(row['rank'])}: score={int(row['score'])} | coords=({row.geometry.y:.4f}, {row.geometry.x:.4f})")
     return top
