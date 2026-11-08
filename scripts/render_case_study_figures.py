@@ -4,8 +4,10 @@ Usage:
     venv/bin/python scripts/render_case_study_figures.py --figs 1 4
 """
 import argparse
+import json
 import os
 import sys
+from datetime import timezone
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
@@ -22,7 +24,8 @@ from matplotlib.colors import Normalize
 from matplotlib.lines import Line2D 
 
 from backend.candidates.generate import generate_candidates  
-from backend.config import city_config  
+from backend.config import (city_config, load_meta, FIGURE_MANIFEST_PATH,
+                            newest_data_time)
 from backend.constraints.filters import apply_all_filters  
 from backend.data.population import load_population_grid  
 from backend.gis.hospitals import load_hospitals  
@@ -36,6 +39,7 @@ THRESHOLD = 300  # 5-minute emergency window
 OUTDIR = os.path.join(ROOT, "docs", "figures")
 
 FREIBURG = ("freiburg", "Freiburg im Breisgau, Germany")
+FORCE = False  # set by --force in main(): downgrade doc-divergence to a print
 ZERO_COLOR = "#d7301f"      # red: beyond the 5m window
 COVERED_CMAP = "YlGnBu"
 NEW_EDGE_COLOR = "#1b7837"  # newly reachable road, Fig 4
@@ -49,9 +53,45 @@ DOC = {  # documented headline values (analysis-v0.3.md), crosschecking
 
 
 def _check(label, got, want, tol):
+    """Crosscheck a computed figure against the documented headline value.
+
+    Mismatch aborts the run (the figure is not written) unless --force was
+    set: a figure silently diverging from the documentation is exactly how
+    docs rot unnoticed. Fresh caches reproduce the documented values when
+    the underlying data has not drifted; a mismatch usually means the OSM
+    road network or hospital set changed since the analysis was written.
+    """
     ok = abs(got - want) <= tol
     tag = "ok" if ok else "MISMATCH"
     print(f"  [{tag}] {label}: computed {got:,.1f} vs documented {want:,.1f}")
+    if not ok and not FORCE:
+        raise SystemExit(
+            f"computed value diverges from docs: {label} "
+            f"({got:.4g} vs {want:.4g}). The city data is younger than the "
+            f"analysis docs. Re-run the analysis and update the docs, or "
+            f"render with --force to leave the documentation values alone.")
+
+
+def _data_as_of(slug):
+    """Newest fetch stamp of a city's cached data, or None for pre-v0.4 caches."""
+    d = newest_data_time(city_config(slug))
+    return d.strftime("%Y-%m-%d") if d else None
+
+
+def _footer(fig, slugs):
+    """Bottom-right stamp: data-as-of plus render date, when stamps exist."""
+    from datetime import datetime
+
+    render = datetime.now().strftime("%Y-%m-%d")
+    as_of = [_data_as_of(s) for s in slugs]
+    parts = [f"rendered {render}"]
+    if as_of and all(as_of):
+        parts.insert(0, f"data as of {max(as_of)}")
+    elif any(as_of):
+        parts.insert(0, "data as of "
+                     + "/".join(s for s in as_of if s))
+    fig.text(0.995, 0.005, " · ".join(parts), ha="right", va="bottom",
+             fontsize=7, color="#737373")
 
 
 def _read_baseline(slug):
@@ -141,6 +181,7 @@ def fig1():
         ax.scatter(x[zeros], y[zeros], c=ZERO_COLOR, marker="s",
                    s=s * 1.05, linewidths=0, zorder=3)
     path = os.path.join(OUTDIR, "fig1_baseline_surfaces.png")
+    _footer(fig, [slug for slug, _ in cities])
     fig.savefig(path, dpi=200)
     plt.close(fig)
     return path
@@ -254,6 +295,7 @@ def fig2():
     fig.suptitle("Picking sites one at a time systematically underbuilds — "
                  "Freiburg, 5-min threshold", fontsize=13)
     path = os.path.join(OUTDIR, "fig2_joint_vs_independent.png")
+    _footer(fig, [FREIBURG[0]])
     fig.savefig(path, dpi=200)
     plt.close(fig)
     return path
@@ -307,6 +349,7 @@ def fig3():
                    marker="s", s=s, facecolors="none", edgecolors="#b2182b",
                    linewidths=0.5, hatch="////", zorder=4)
     path = os.path.join(OUTDIR, "fig3_2sfca_change.png")
+    _footer(fig, [FREIBURG[0]])
     fig.savefig(path, dpi=200)
     plt.close(fig)
     return path
@@ -354,7 +397,7 @@ def fig4():
         / cell_pop.sum()
     pct_opt = 100 * cell_pop[np.isin(cell_node, list(d_opt))].sum() \
         / cell_pop.sum()
-    _check("baseline coverage", pct_base, 66.4, tol=0.2)
+    _check("baseline coverage", pct_base, DOC["baseline_pct"]["freiburg"], tol=0.2)
     _check("coverage with joint k=5", pct_opt,
            DOC["freiburg_joint_pct"], tol=0.2)
 
@@ -400,6 +443,7 @@ def fig4():
     ax.legend(handles=handles, loc="lower left", fontsize=8.5,
               framealpha=0.92)
     path = os.path.join(OUTDIR, "fig4_before_after_isochrones.png")
+    _footer(fig, [FREIBURG[0]])
     fig.savefig(path, dpi=200)
     plt.close(fig)
     return path
@@ -407,13 +451,48 @@ def fig4():
 
 FIGS = {1: fig1, 2: fig2, 3: fig3, 4: fig4}
 
+# Cities the case-study figures are built from (fig1's panels; fig2-4 use
+# Freiburg only). Consumers (backend/main.py staleness warning, later UI)
+# cross their own data stamps against this manifest's rendered_at.
+CITIES = ["freiburg", "krakow", "heidelberg", "kampala"]
+
+
+def write_manifest(figs_rendered):
+    """Record when figures were rendered and how fresh the data was."""
+    from datetime import datetime
+
+    manifest = {
+        "rendered_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "figures": figs_rendered,
+        "documented": DOC,  # values pinned in analysis-v0.3.md at render time
+        "cities": {},
+    }
+    for slug in CITIES:
+        cfg = city_config(slug)
+        stamps = {k: v for k, v in load_meta(cfg).items()
+                  if k.startswith("fetched_")}
+        manifest["cities"][slug] = {
+            "data_as_of": max(stamps.values()) if stamps else None,
+            "stamps": stamps,
+        }
+    os.makedirs(os.path.dirname(FIGURE_MANIFEST_PATH), exist_ok=True)
+    with open(FIGURE_MANIFEST_PATH, "w") as f:
+        json.dump(manifest, f, indent=2)
+    print(f"Wrote {os.path.relpath(FIGURE_MANIFEST_PATH, ROOT)}")
+
 
 def main():
+    global FORCE
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--figs", nargs="+", type=int,
                         choices=sorted(FIGS), default=sorted(FIGS),
                         help="which figures to render (default: all)")
+    parser.add_argument("--force", action="store_true",
+                        help="do not abort when a computed figure diverges "
+                             "from the documented value; render anyway (the "
+                             "docs then describe data that no longer holds)")
     args = parser.parse_args()
+    FORCE = args.force
 
     os.makedirs(OUTDIR, exist_ok=True)
     written = []
@@ -423,6 +502,7 @@ def main():
     for path in written:
         print(f"Wrote {os.path.relpath(path, ROOT)} "
               f"({os.path.getsize(path) / 1e3:.0f} kB)")
+    write_manifest(args.figs)
 
 
 if __name__ == "__main__":
