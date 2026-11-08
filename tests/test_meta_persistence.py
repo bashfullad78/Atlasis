@@ -5,7 +5,8 @@ import os
 import pytest
 
 import backend.data.worldpop as wp
-from backend.config import city_config, load_meta, persist_meta
+from backend.config import (city_config, load_meta, newest_data_time,
+                            persist_meta)
 
 
 def _city_in(tmp_path, monkeypatch, slug, meta=None):
@@ -74,3 +75,47 @@ def test_utm_epsg_persists_boundary_derived_zone(tmp_path, monkeypatch):
     b.to_file(cfg.boundary_path, driver="GPKG")
     assert cfg.utm_epsg() == 32643
     assert load_meta(cfg)["utm_epsg"] == 32643
+
+
+def test_newest_data_time_reads_fetched_stamps(tmp_path, monkeypatch):
+    cfg = _city_in(tmp_path, monkeypatch, "stampcity")
+    assert newest_data_time(cfg) is None  # pre-v0.4 cache without stamps
+    persist_meta(cfg, fetched_hospitals="2026-05-01T00:00:00+00:00",
+                 fetched_roads="2026-05-03T00:00:00+00:00")
+    newest = newest_data_time(cfg)
+    assert newest.isoformat() == "2026-05-03T00:00:00+00:00"
+
+
+def test_doc_staleness_warning_on_newer_data(tmp_path, monkeypatch, capsys):
+    import backend.main as m
+    manifest = tmp_path / "manifest.json"
+    manifest.write_text(json.dumps({
+        "rendered_at": "2026-05-10T00:00:00+00:00",
+        "cities": {"kampala": {"data_as_of": "2026-05-01T00:00:00+00:00"}},
+    }))
+    monkeypatch.setattr(m, "FIGURE_MANIFEST_PATH", manifest)
+    cfg = _city_in(tmp_path, monkeypatch, "kampala",
+                   meta={"fetched_hospitals": "2026-05-20T00:00:00+00:00"})
+    m.warn_if_doc_figures_stale(cfg)
+    out = capsys.readouterr().out
+    assert "10 day(s) newer" in out and "kampala" in out
+
+    # data not newer than the render -> silent
+    persist_meta(cfg, fetched_hospitals="2026-05-09T00:00:00+00:00")
+    capsys.readouterr()
+    m.warn_if_doc_figures_stale(cfg)
+    assert capsys.readouterr().out == ""
+
+
+def test_doc_staleness_warning_silent_without_manifest_or_stamps(
+        tmp_path, monkeypatch, capsys):
+    import backend.main as m
+    cfg = _city_in(tmp_path, monkeypatch, "kampala")  # no stamps, no manifest
+    m.warn_if_doc_figures_stale(cfg)
+    assert capsys.readouterr().out == ""
+    manifest = tmp_path / "manifest.json"
+    manifest.write_text(json.dumps({"rendered_at": "2026-05-10T00:00:00+00:00",
+                                    "cities": {"freiburg": {}}}))
+    monkeypatch.setattr(m, "FIGURE_MANIFEST_PATH", manifest)
+    m.warn_if_doc_figures_stale(cfg)
+    assert capsys.readouterr().out == ""

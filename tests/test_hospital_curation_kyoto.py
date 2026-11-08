@@ -51,13 +51,10 @@ def test_curation_module_is_ascii_only():
 
 def test_blocklist_and_excludes_are_english_substrings():
     """Heuristic lists must be lowercase ASCII substrings (match semantics)."""
-    from backend.gis.hospitals import (HOSPITAL_EXCLUDE_NAMES,
-                                       HOSPITAL_NAME_BLOCKLIST,
-                                       HOSPITAL_KEEP_NAMES)
+    from backend.gis.hospitals import HOSPITAL_EXCLUDE_NAMES, HOSPITAL_NAME_BLOCKLIST
 
     for lst, label in ((HOSPITAL_NAME_BLOCKLIST, "blocklist"),
-                       (HOSPITAL_EXCLUDE_NAMES, "exclude"),
-                       (HOSPITAL_KEEP_NAMES, "keep")):
+                       (HOSPITAL_EXCLUDE_NAMES, "exclude")):
         for entry in lst:
             assert isinstance(entry, str), f"{label} entries must be strings"
             assert entry == entry.lower() and entry.isascii(), \
@@ -175,10 +172,13 @@ def test_duplicate_dedup_is_language_blind():
 
 
 
-# existing caches keep documented counts (85 / 32 / 9 / 26)
+# existing caches keep documented counts (85 / 32 / 9 / 27)
+# krakow 26 -> 27: fresh 2026-10-28 fetch gained one facility vs the
+# pre-wipe cache (OSM is live; curation semantics unchanged — dedup still
+# drops 1 of 28 raw features).
 
 
-CITY_EXPECTED = {"mysuru": 85, "heidelberg": 32, "freiburg": 9, "krakow": 26}
+CITY_EXPECTED = {"mysuru": 85, "heidelberg": 32, "freiburg": 9, "krakow": 27}
 
 
 @pytest.mark.parametrize("slug,expected", sorted(CITY_EXPECTED.items()))
