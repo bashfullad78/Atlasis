@@ -94,6 +94,41 @@ def test_overpass_call_remembered_mirror_tried_first(monkeypatch, clean_settings
     assert order[1] == "https://overpass.kumi.systems/api"
 
 
+def test_overpass_call_trusted_mirror_skips_probes(monkeypatch, clean_settings):
+    """Once a mirror served data, the next call goes straight to it: probing
+    is request traffic too, and a dead trusted mirror costs one failed call,
+    not a probe storm."""
+    probed = []
+
+    def fn():
+        return op.ox.settings.overpass_url
+
+    monkeypatch.setattr(op, "probe_mirror",
+                        lambda url: probed.append(url) or pytest.fail("no probe"))
+    op._last_good = op.PRIMARY_MIRROR
+    assert op.overpass_call(fn) == op.PRIMARY_MIRROR
+    assert probed == []
+
+
+def test_overpass_call_trusted_mirror_failure_falls_over_probed(monkeypatch, clean_settings):
+    """If the trusted mirror errors out, the probed loop still runs."""
+    calls, probed = [], []
+
+    def flaky():
+        calls.append(op.ox.settings.overpass_url)
+        if len(calls) == 1:
+            raise IOError("reset")
+        return "ok"
+
+    monkeypatch.setattr(op, "probe_mirror",
+                        lambda url: probed.append(url) or True)
+    op._last_good = op.PRIMARY_MIRROR
+    assert op.overpass_call(flaky) == "ok"
+    assert calls[0] == op.PRIMARY_MIRROR  # trusted, unprobed
+    assert len(calls) == 2                # ...then failed over
+    assert op._last_good == calls[1]
+
+
 def test_overpass_call_raises_when_all_mirrors_fail(monkeypatch, clean_settings):
     monkeypatch.setattr(op, "probe_mirror", lambda url: False)
     with pytest.raises(ConnectionError):
