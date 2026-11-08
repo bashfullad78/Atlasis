@@ -9,7 +9,7 @@ abstract: >-
 authors:
   - alias: bashfullad78
     family-names: Zafar
-version: 0.3.0
+version: 0.4.0
 date-released: "2026-09-25"
 license: MIT
 repository-code: "https://github.com/bashfullad78/Atlasis"
