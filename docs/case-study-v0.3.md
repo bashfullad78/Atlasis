@@ -4,6 +4,9 @@
 > `docs/analyses/analysis-v0.3.md` (methods and full results). All figures
 > are produced from committed code and cached open data — every number in
 > this document is reproducible with the commands in the appendix.
+>
+> *Refreshed for v0.4: test count, demo/API status, and a drive-time
+> calibration note. All result numbers are as computed in the v0.3 runs.*
 
 ---
 
@@ -37,7 +40,7 @@ mathematical approximation guarantee, benchmarked against an exact MILP
 solver (PuLP/CBC); the **enhanced two-step floating catchment
 area index (E2SFCA)**, which turns binary "reachable / not reachable" into
 a graded access surface; and **uncertainty reporting** (delete-1 jackknife
-and seeded bootstraps) on every headline number. The suite of 97 offline
+and seeded bootstraps) on every headline number. The suite of 137 offline
 tests pins each known result to its documented value.
 
 **The inputs are deliberately boring.** Road networks come from
@@ -111,7 +114,14 @@ Mysuru's figures are defined against the 19 polygon-mapped facilities, a
 deliberately stricter facility class — the full 85-facility network is
 saturated even at 5 minutes (see analysis-v0.3.md). (2) Kampala's k=1 means
 the best single site already exhausts all reachable uncovered population —
-identical site, identical 99.8%.*
+identical site, identical 99.8%. (3) **Calibration (v0.4):** the modeled
+drive times were later validated against a real router in four of these
+cities (50 OD pairs each, `docs/analyses/validation-v0.4.md`) — tag-rich
+Freiburg and Kraków run ~24% optimistic (a modeled 5-minute window behaves
+like ~6 minutes), tag-sparse Guwahati and Kampala show no usable correction
+in either direction. Absolute percentages above therefore carry that scale
+factor in tag-rich cities; the relative comparisons (before/after, joint vs.
+ranked) are unaffected, since every scenario shares the same model.*
 
 **2. Picking sites one at a time systematically underbuilds.** The
 conventional approach — rank sites by individual benefit, take the top k —
@@ -190,8 +200,12 @@ the documented 1-8% margin (Kampala ~1%, Heidelberg ~4%,
 Kraków ~8%) — and the facility
 inventory is OSM's, curated by structural evidence (footprints, bed
 counts) rather than English name matching, exactly so the same pipeline
-works in Kannada, German, Polish, Japanese or Luganda. Every caveat is
-printed in the tools themselves, not footnoted away.
+works in Kannada, German, Polish, Japanese or Luganda. The drive-time model
+itself was externally validated after this case study was written — four
+cities × 50 OD pairs against a real router, finding the systematic optimism
+and the tag-rich/tag-sparse split documented in
+`docs/analyses/validation-v0.4.md`. Every caveat is printed in the tools
+themselves, not footnoted away.
 
 > **Robustness note — the forbidden-zone filter.** The land-exclusion
 > filter (water, parks, cemeteries) inherits a deliberately broad OSM tag
@@ -217,7 +231,7 @@ printed in the tools themselves, not footnoted away.
 > *Rendered by* `scripts/render_case_study_figures.py --figs 4` *from the
 > slim road graph (`data/raw/freiburg/roads_*.parquet`) plus the greedy k=5
 > selection recomputed on the cached coverage matrix; the public Leaflet
-> demo consumes the same data through the planned API.*
+> demo consumes the same data through the jobs API shipped in v0.4.*
 
 ## Why this is replicable
 
@@ -250,5 +264,5 @@ venv/bin/python scripts/render_case_study_figures.py
 `scripts/render_case_study_figures.py` from the GPKG exports above — the
 script re-derives the joint k=5 selection through the committed MCLP code
 and cross-checks every headline number against `analysis-v0.3.md`, printing
-a mismatch rather than silently plotting one. The public demo map remains
-the next v0.3 deliverable.*
+a mismatch rather than silently plotting one. The public demo map shipped
+in v0.4 as the Jobs API + web UI (`python -m backend.api.app`).*
