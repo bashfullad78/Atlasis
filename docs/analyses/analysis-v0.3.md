@@ -1,8 +1,6 @@
 # ATLASIS v0.3 Analysis — Overpass Hardening, Heidelberg Onboarding
 
-> First v0.3 layer: network reliability work plus the
-> completion of both cities that v0.2 left with data gaps. Third country
-> (DEU) on the board. Tests: 97/97 offline
+> First v0.3 layer: network reliability work plus the. Tests: 97/97 offline
 > (`venv/bin/python -m pytest tests/ -q`).
 > Implementation log: `docs/logs/v0.3-log.md`.
 
@@ -136,7 +134,7 @@ time python -m backend.main --city freiburg \
 # combined request) + population crop + full scoring + baseline report
 ```
 
-**92 s wall** for a complete bootstrap-plus-run. The handoff benchmark asks
+**92 s wall** for a complete bootstrap-plus-run. The benchmark asks
 for "one-command new city, < 10 min including downloads on a normal
 connection" — v0.2 spent three ~10-minute working windows on Heidelberg's
 forbidden step alone under Overpass load-shedding. The overhead reduction
