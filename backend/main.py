@@ -9,11 +9,35 @@ runs. Warm-cache runs touch no network. Use --probe to preview what would be
 downloaded, or --no-download to forbid any fetch.
 """
 import argparse
+import json
 import sys
+from datetime import datetime
 
-from backend.config import city_config
+from backend.config import (city_config, newest_data_time,
+                            FIGURE_MANIFEST_PATH)
 from backend.data.prepare import ensure_data, missing_artifacts, probe_data
 from backend.pipeline import run_pipeline
+
+
+def warn_if_doc_figures_stale(cfg):
+    """One-line note when refreshed city data is newer than the case-study
+    figures (roads/hospitals change on OSM between the doc run and now)."""
+    try:
+        with open(FIGURE_MANIFEST_PATH) as f:
+            manifest = json.load(f)
+    except (OSError, ValueError):
+        return
+    rendered = manifest.get("rendered_at")
+    if rendered is None or cfg.slug not in manifest.get("cities", {}):
+        return
+    newest = newest_data_time(cfg)
+    if newest is None:
+        return
+    days = (newest - datetime.fromisoformat(rendered)).days
+    if days >= 0:
+        print(f"note: data for '{cfg.slug}' is {days} day(s) newer than the "
+              f"docs/case-study figures ({rendered[:10]}); re-render them if "
+              f"headline figures should be refreshed.")
 
 
 def main():
@@ -49,6 +73,14 @@ def main():
                    help="RNG seed for --uncertainty bootstrap (default 0)")
     a = p.parse_args()
 
+    # Fail fast on bad values instead of after minutes of fetching/scoring.
+    for flag, value, lo in (("--top-n", a.top_n, 1), ("--threshold", a.threshold, 1),
+                            ("--spacing", a.spacing, 50),
+                            ("--num-sites", a.num_sites, 1),
+                            ("--n-boot", a.n_boot, 1)):
+        if value is not None and value < lo:
+            p.error(f"{flag} must be >= {lo}, got {value}")
+
     cfg = city_config(a.city, a.place, country=a.country)
 
     if a.probe:
@@ -65,6 +97,7 @@ def main():
             )
     else:
         ensure_data(cfg, skip_forbidden=a.skip_forbidden)
+        warn_if_doc_figures_stale(cfg)
 
     run_pipeline(cfg, spacing_m=a.spacing, top_n=a.top_n, threshold=a.threshold,
                  skip_forbidden=a.skip_forbidden, num_sites=a.num_sites,
