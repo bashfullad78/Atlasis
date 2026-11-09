@@ -19,7 +19,7 @@ def utc_now_iso():
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
-def newest_data_time(cfg: CityConfig) -> "datetime | None":
+def newest_data_time(cfg: "CityConfig") -> "datetime | None":
     """Most recent artifact fetch recorded in meta.json, or None pre-stamps."""
     stamps = [v for k, v in load_meta(cfg).items() if k.startswith("fetched_")]
     if not stamps:
