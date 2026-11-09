@@ -1,6 +1,6 @@
 # ATLASIS
 
-> **v0.3 — experimental prototype.**
+> **v0.4**
 > Results in this version should not be used for real world planning decisions.
 > See [Current limitations](#current-limitations), the [version history](#version-history-and-documents), and the full analyses in `docs/analyses/`.
 
@@ -31,7 +31,23 @@ v0.3 keeps the pipeline above and adds the methodological layers plus a hardened
 
 Full methods and per-city results: `docs/analyses/analysis-v0.3.md`. Implementation log: `docs/logs/v0.3-log.md`.
 
+## What v0.4 adds
+
+v0.4 turns the prototype into a runnable demo and closes two roadmap items:
+
+- **Async Jobs API.** `backend/api/` — submit a city/threshold/k and poll it to completion behind FastAPI (`python -m backend.api.app`, port 7860): single worker, queue cap 1, per-IP soft rate limit, failure surfaced as job state, monotonic elapsed time (the container clock jumps), and a 240 s acquisition fallback that retries with `skip_forbidden` and flags the payload **NOT comparable** instead of failing.
+- **Interactive demo map.** `web/` — dark OSM-style Leaflet UI served from the same port: form → live stages → before/after coverage layers with server-computed isochrones, site list, provenance stamps, mobile layout, reduced-motion respected.
+- **Provenance stamps.** Every result carries `data_stamps`/`data_as_of` from `meta.json`, so cache staleness is visible in both the API payload and the UI.
+- **External drive-time validation** (roadmap #2). `scripts/validate_drive_times.py` cross-checks modeled times against the public OSRM router on 50 seeded OD pairs per city; four cities validated. Tag-rich cities (Freiburg, Kraków) run a systematic **~24% optimistic** — every pair positive, so a 15-min guarantee behaves like 15–19 min; tag-sparse cities (Guwahati, Kampala) show **no usable scale factor** (sign-mixed, Kampala even pessimistic on long trips). `docs/analyses/validation-v0.4.md`.
+- **Bed capacity in the 2SFCA** (roadmap #3): mapped OSM `beds` become per-facility capacities (uniform 1.0 fallback where absent); runs print "Bed capacity modeled: N/M facilities".
+- **Acquisition resilience, live-verified**: the last-good Overpass mirror is trusted without a status probe (probe traffic itself gets throttled), mirror failover proven live across five fresh city fetches, and the fallback→pipeline `skip_forbidden` bug that live fire exposed fixed with a regression test.
+- **Suite grew 97 → 137 tests** (still fully offline), and the CI install gap it uncovered (`httpx2`, required by starlette's TestClient, now pinned in `requirements.txt`).
+
+Validation write-up: `docs/analyses/validation-v0.4.md`. Implementation log: `docs/logs/v0.4-log.md`.
+
 ## What v0.3 does not do
+
+*(Historical at v0.3: the API/map, external validation and bed wiring shipped in v0.4 — realtime traffic and parcel feasibility did not; current state lives in [Current limitations](#current-limitations).)*
 
 - Hospital capacity or bed availability (a small clinic counts the same as a large hospital; the 2SFCA `capacities=` parameter is plumbed but no city cache maps beds yet).
 - Real time or time of day traffic; drive times are not yet validated against an external router (planned; see the roadmap in `docs/analyses/analysis-v0.3.md`).
@@ -42,10 +58,35 @@ Full methods and per-city results: `docs/analyses/analysis-v0.3.md`. Implementat
 
 ## Setup
 
+Prerequisites: Python 3.12+ (the CI matrix pins 3.12) and `git`. All
+dependencies install from `requirements.txt` via pip — no system GIS
+stack is needed (GeoPandas/Fiona/PyProj install as wheels).
+
 ```bash
+git clone https://github.com/bashfullad78/Atlasis.git
+cd Atlasis
 python -m venv venv && source venv/bin/activate
 pip install -r requirements.txt
 ```
+
+Verify the install by running the offline test suite — it makes no
+network calls and needs no data (~15 s; real-cache pins skip
+automatically where `data/` has no caches):
+
+```bash
+pytest tests/ -q    # 137 tests
+```
+
+To try the Jobs API + interactive map:
+
+```bash
+python -m backend.api.app   # then open http://localhost:7860
+```
+
+Next: fetch a city and run the pipeline — see [Downloading data](#downloading-data)
+and [Running the optimization](#running-the-optimization). Everything
+caches under `data/raw/<city>/`; a warm cache makes zero network calls.
+
 ## Downloading data
 
 The pipeline bootstraps any city automatically: `python -m backend.main --city X --place "City, Country"` fetches whatever is missing (boundary, roads, hospitals, forbidden zones, population cache) before optimizing, and a warm cache triggers zero network calls. Helper flags:
@@ -84,7 +125,7 @@ Road graphs are stored as two compressed Parquet tables (one row per node / dire
 ```bash
 python -m backend.main --city mysuru
 python -m backend.main --city bengaluru --place "Bengaluru, Karnataka, India"
-python -m backend.main --city mysuru --threshold 300   # 5minute threshold
+python -m backend.main --city mysuru --threshold 300   # 5-minute threshold
 
 # Full v0.3 run: joint selection of 5 sites (greedy vs exact) + uncertainty
 python -m backend.main --city freiburg --place "Freiburg im Breisgau, Germany" \
@@ -120,7 +161,7 @@ Results are written to `data/processed/<city>/`: `top_sites.gpkg` (ranked + join
 
 ### Saturation
 
-The most common result across the suite is that a 15minute threshold is already saturated: in every one of the eight cities, essentially all modeled population is within 15 minutes of an existing hospital, so no candidate produces a nonzero gain.
+The most common result across the suite is that a 15-minute threshold is already saturated: in every one of the eight cities, essentially all modeled population is within 15 minutes of an existing hospital, so no candidate produces a nonzero gain.
 
 This is a correct result, not a failure. It means the placement problem is not meaningful at the chosen threshold. Before concluding there is nothing to optimize, tighten the threshold:
 
@@ -128,7 +169,7 @@ This is a correct result, not a failure. It means the placement problem is not m
 python -m backend.main --city mysuru --threshold 300   # 5 minutes
 ```
 
-Across all eight cities, a 5minute threshold exposes the real gaps (baselines 66.4% in Freiburg to 98.9% in Kolkata; Mysuru's gap appears only once the facility class is restricted to polygon-mapped hospitals). Full results: `docs/analyses/analysis-v0.1.md` (provisional v0.1 figures), `analysis-v0.2.md` (corrected rerun), `analysis-v0.3.md` (v0.3 layers + all joint selections).
+Across all eight cities, a 5-minute threshold exposes the real gaps (baselines 66.4% in Freiburg to 98.9% in Kolkata; Mysuru's gap appears only once the facility class is restricted to polygon-mapped hospitals). Full results: `docs/analyses/analysis-v0.1.md` (provisional v0.1 figures), `analysis-v0.2.md` (corrected rerun), `analysis-v0.3.md` (v0.3 layers + all joint selections).
 
 ### The 0.0 min artifact
 
@@ -146,7 +187,7 @@ Population comes from 1 km WorldPop cells whose population is modeled at the cel
 |---|---|---|
 | Lower the threshold | Stricter access standard | 5min threshold: Guwahati 85.4% baseline, best single site +20,657 people, joint set of 5 → 99.8% |
 | Restrict the facility class | Only major hospitals count as served | Mysuru with the 19 polygon mapped hospitals: 5min baseline drops from 100.0% to 93.5%, best candidate adds +24,140; joint set of 2 → 100.0% (`scripts/run_restricted_mysuru.py`) |
-| Model capacity | Crowded hospitals do not serve their full catchment | Requires bed/patient load data; `capacities=` is plumbed into the 2SFCA, no city cache maps beds yet |
+| Model capacity | Crowded hospitals do not serve their full catchment | OSM `beds=` now feeds `capacities=` where mapped (uniform 1.0 fallback); full patient-load data still absent |
 
 Always run the baseline first and check coverage at the chosen threshold. If coverage is near 100%, lower the threshold or restrict the facility class before scoring candidates.
 
@@ -156,11 +197,11 @@ Always run the baseline first and check coverage at the chosen threshold. If cov
 
 - **Population data:** Population is the WorldPop 1 km density product converted to people per cell via density x geodesic cell area. This corrects the v0.1 density-as-count error, but the underlying estimates remain modeled (not census counts) and 1 km cells locate population at cell centroids (the `0.0 min` artifact is reported per run). Modeled totals land within ~1–8% of official figures where checked.
 - **Population layer (v0.1 results):** All population figures in `docs/analyses/analysis-v0.1.md` predate the density-to-count correction and are provisional.
-- **Hospital data:** OSM completeness varies by city. Retained facility counts should not be treated as a census of hospitals. Capacity, specialty, and quality are not modeled; under uniform capacity the 2SFCA city-level index mirrors the facility count (the per-cell surface is the informative part).
-- **Road network:** Travel times reflect the modeled network only. Real time traffic, congestion, road closures, and emergency routing are not represented, and modeled times are not yet validated against an external router.
+- **Hospital data:** OSM completeness varies by city. Retained facility counts should not be treated as a census of hospitals. Only OSM-mapped `beds` are modeled as capacity (uniform 1.0 elsewhere); specialty and quality are not modeled, and with mostly-uniform capacities the 2SFCA city-level index mirrors the facility count (the per-cell surface is the informative part).
+- **Road network:** Travel times reflect the modeled network only. Real time traffic, congestion, road closures, and emergency routing are not represented. The OSRM cross-check (`docs/analyses/validation-v0.4.md`, four cities) bounds the model error: tag-rich cities run systematically ~20–25% optimistic (apply that scale factor to absolute guarantees), tag-sparse cities show no systematic offset but wider per-trip variance.
 - **Candidate locations:** High scoring candidates are analysis locations. No parcel level feasibility check is performed; selected sites are capacity-less points.
 - **Filtering:** `--skip-forbidden` runs exclude water/park/cemetery land only when the cache exists; the printed warning marks such runs as not comparable.
-- **Reporting:** results surface through the CLI, GPKG exports, the documents — and the case study (`docs/case-study-v0.3.md`); the public API + interactive demo map are still pending.
+- **Reporting:** results surface through the CLI, GPKG exports, the documents — and the case study (`docs/case-study-v0.3.md`) — and through the Jobs API + interactive map (`python -m backend.api.app`, local/demo service; public hosting still pending).
 
 ---
 
@@ -172,7 +213,7 @@ First end-to-end implementation (data ingestion, candidate generation, hard cons
 
 Key findings (their structure is unchanged in v0.2):
 
-- A 15minute threshold is saturated in every city; a 5minute threshold exposes measurable gains in three of four (Mysuru only once the facility class is restricted to polygon-mapped hospitals).
+- A 15-minute threshold is saturated in every city; a 5-minute threshold exposes measurable gains in three of four (Mysuru only once the facility class is restricted to polygon-mapped hospitals).
 - Results are stable across candidate grid spacings (Patna, Guwahati).
 - Saturation is an informative result, not a failure — the pipeline reports it explicitly.
 
@@ -192,7 +233,7 @@ Rebuilt data foundation on the v0.1 pipeline:
 
 Full write-up: `docs/analyses/analysis-v0.2.md` (includes the mechanical v0.1 → v0.2 reconciliation). Implementation log: `docs/logs/v0.2-log.md`.
 
-### v0.3 — methodological layers, four countries, case study (current)
+### v0.3 — methodological layers, four countries, case study
 
 On the stable v0.2 base:
 
@@ -201,17 +242,29 @@ On the stable v0.2 base:
 - **Overpass hardening**: mirror failover, fast-fail timeouts, one combined forbidden query, `--skip-forbidden`; fresh-city bootstrap 92 s (Freiburg) to 8m54s (Kraków, server-bound).
 - **Evidence-based facility curation** (language-independent: polygon/beds override the English blocklist; ASCII-only logic pinned by the Kyoto test), with an honest audit of the old name-only filter.
 - **New cities**: Heidelberg and Freiburg (DEU) and Kraków (POL) onboarded — suite now 8 cities across 4 countries (IND, UGA, DEU, POL); a forbidden-zone tag-sensitivity check (Heidelberg, Kraków) changes none of the published results.
-- **Case study with figures** (`docs/case-study-v0.3.md`, PDF via `scripts/case_study_pdf.py`, figures rendered offline by `scripts/render_case_study_figures.py`) and **CI** on the offline test suite (`.github/workflows/ci.yml`).
+- **Case study with figures** (`docs/case-study-v0.3.md`, figures rendered offline by `scripts/render_case_study_figures.py`) and **CI** on the offline test suite (`.github/workflows/ci.yml`).
 
 Full write-up: `docs/analyses/analysis-v0.3.md`. Implementation log: `docs/logs/v0.3-log.md`.
+
+### v0.4 — jobs API, interactive map, external validation (current)
+
+On the v0.3 base:
+
+- **Jobs API + web UI** — the remaining v0.3 deliverable shipped: async jobs behind FastAPI (live stages, queue cap, per-IP rate limit, failure-as-state, 240 s `skip_forbidden` acquisition fallback flagged NOT comparable) with a dark OSM-style Leaflet front end (before/after coverage, server-computed isochrones, mobile, reduced-motion).
+- **Provenance surfaced** — `meta.json` fetch stamps flow into every payload (`data_stamps`, `data_as_of`) and the UI footer.
+- **Drive-time validation vs OSRM** — four cities × 50 pairs close "modeled times not yet validated" with a split verdict: tag-rich cities ~24% optimistic (carry the scale factor), tag-sparse cities no systematic offset. `docs/analyses/validation-v0.4.md`.
+- **Bed capacity** wired from OSM `beds` into the 2SFCA (uniform 1.0 fallback where absent).
+- **Acquisition hardening** — probe-free last-good-mirror trust, the 240 s fallback live-verified end to end, and the runner bug it exposed (the flag never reached the pipeline) fixed with a regression test.
+
+Implementation log: `docs/logs/v0.4-log.md`.
 
 ## Roadmap after v0.3
 
 Ordered by leverage; details and status in `docs/analyses/analysis-v0.3.md`:
 
-1. **FastAPI + Leaflet demo on a public URL** — a thin API over `run_pipeline`'s return dict and an interactive before/after map (the remaining v0.3 deliverable).
-2. **External validation of drive times** — cross-check modeled times against OSRM/Valhalla on ~50 OD pairs per city to bound the network-model error.
-3. **Per-facility capacity (beds)** for the 2SFCA — wire mapped `beds=` into `capacities=` on the next facility refetch; national-registry fallback where OSM has none.
+1. **FastAPI + Leaflet demo on a public URL** — a thin API over `run_pipeline`'s return dict and an interactive before/after map (the remaining v0.3 deliverable). **API + map shipped in v0.4; public hosting still pending.**
+2. **External validation of drive times** — cross-check modeled times against OSRM/Valhalla on ~50 OD pairs per city to bound the network-model error. **Done in v0.4 for four cities.**
+3. **Per-facility capacity (beds)** for the 2SFCA — wire mapped `beds=` into `capacities=` on the next facility refetch; national-registry fallback where OSM has none. **Wired in v0.4 (OSM beds only; no national registry).**
 4. **Release hygiene** — tag `v0.3`, release notes, optional Zenodo DOI (LICENSE and `CITATION.cff` are in place; CI runs).
 
 ---
@@ -221,6 +274,8 @@ Ordered by leverage; details and status in `docs/analyses/analysis-v0.3.md`:
 ```
 backend/
   config.py      CityConfig: per city settings, auto UTM CRS, data paths
+  api/           Jobs API: app.py (FastAPI routes + static mount), runner.py
+                 (worker thread, queue cap, rate limit, 240 s fallback)
   data/          download + population crop, density-to-count conversion & Parquet cache,
                  Overpass mirror failover (overpass.py), bootstrap orchestrator (prepare.py)
   gis/           boundary + hospital loading with evidence-based OSM curation
@@ -233,6 +288,8 @@ backend/
   pipeline.py    end to end orchestration
   main.py        CLI entry point
 
+web/             interactive demo map: index.html + app.js (Leaflet, dark OSM style)
+
 data/
   raw/<city>/    boundary.gpkg, roads_nodes.parquet + roads_edges.parquet (slim graph;
                  legacy cities may still carry roads.graphml), hospitals.gpkg,
@@ -240,21 +297,27 @@ data/
   raw/worldpop/<ISO3>/  shared national 1 km density raster (deletable once cached)
   processed/<city>/     top_sites.gpkg, accessibility_{baseline,optimized}.gpkg
 
-tests/           offline test suite (97 tests; real-cache pins skip without data/)
+tests/           offline test suite (137 tests; real-cache pins skip without data/)
 .github/workflows/ci.yml  CI: install pinned deps, run the offline suite
 
 docs/
   analyses/analysis-v0.1.md    Experimental findings across Mysuru, Kolkata, Patna, Guwahati
   analyses/analysis-v0.2.md    Corrected-population rerun of the same four cities (people per cell)
   analyses/analysis-v0.3.md    v0.3 findings: MCLP, E2SFCA, uncertainty, curation, all 8 cities
+  analyses/validation-v0.4.md  Drive-time validation vs OSRM + tag coverage + cross-city
+                                uncertainty (all 4 cities)
   case-study-v0.3.md           Non-technical four-country case study (figures in docs/figures/)
+  logs/v0.2-log.md             v0.2 implementation log (population correction, bootstrap)
   logs/v0.3-log.md             v0.3 implementation log (what was built, file by file)
+  logs/v0.4-log.md             v0.4 implementation log (jobs API, web UI, validation)
 
 scripts/
-  render_case_study_figures.py  Offline matplotlib rendering of the case-study figures,
+  validate_drive_times.py      OSRM drive-time validation (50 seeded OD pairs per city)
+  tag_coverage.py              Forbidden-tag coverage per city (offline, cached data only)
+  fetch_forbidden_chunked.py   Chunked forbidden-zone fetch for Overpass 413 rejections
+  render_case_study_figures.py Offline matplotlib rendering of the case-study figures,
                                 with automated cross-checks against analysis-v0.3.md
-  case_study_pdf.py             Render the case study to PDF via Chrome headless
-  run_restricted_mysuru.py      Mysuru restricted-class (19 polygon-mapped) 5-min run
+  run_restricted_mysuru.py     Mysuru restricted-class (19 polygon-mapped) 5-min run
 ```
 
 ## License & citation
@@ -266,5 +329,5 @@ their own terms — see the notice in `LICENSE`.
 To cite ATLASIS, use the metadata in [`CITATION.cff`](CITATION.cff) (GitHub
 renders it as a "Cite this repository" button), or:
 
-> Zafar. (2026). *ATLASIS* (Version 0.3.0). GitHub.
+> Zafar. (2026). *ATLASIS* (Version 0.4.0). GitHub.
 > https://github.com/bashfullad78/Atlasis
