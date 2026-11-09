@@ -1,6 +1,6 @@
 """Jobs API submit + poll, in-memory state.
 
-Run: python -m backend.api.app        (0.0.0.0:7860 for HF Spaces)
+Run: python -m backend.api.app        (0.0.0.0:7860)
 
 Endpoints:
   POST /api/jobs    {place, country?, threshold?, num_sites?} -> 202 {job_id}
@@ -65,4 +65,4 @@ if _os.path.isdir(_WEB_DIR):
 if __name__ == "__main__":
     import uvicorn
 
-    uvicorn.run(app, host="0.0.0.0", port=7860)  # HF Spaces ports 7860
+    uvicorn.run(app, host="0.0.0.0", port=7860)  # conventional app port
