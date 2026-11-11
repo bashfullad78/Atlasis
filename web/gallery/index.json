@@ -1,0 +1,30 @@
+{
+ "threshold": 300,
+ "num_sites": 5,
+ "cities": [
+  {
+   "city": "freiburg",
+   "label": "Freiburg im Breisgau",
+   "threshold": 300,
+   "num_sites": 5
+  },
+  {
+   "city": "heidelberg",
+   "label": "Heidelberg",
+   "threshold": 300,
+   "num_sites": 5
+  },
+  {
+   "city": "krakow",
+   "label": "Krak\u00f3w",
+   "threshold": 300,
+   "num_sites": 5
+  },
+  {
+   "city": "testville",
+   "label": "Testville (synthetic)",
+   "threshold": 300,
+   "num_sites": 5
+  }
+ ]
+}
