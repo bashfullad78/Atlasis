@@ -203,16 +203,9 @@ def _progress_fn(job):
     return progress
 
 
-def _run_job(params, job):
-    from backend.config import city_config
-    from backend.data import prepare
-
-    with _LOCK:
-        job["stage"] = _STAGE_LABELS["acquire"]
-
-    # Lazy heavy imports + test indirections.
+def _bind_loaders():
+    """Bind the lazy heavy loaders (worker start / offline exporters)."""
     global _RUN_PIPELINE, _GRAPH_LOADER, _HOSPITAL_LOADER
-    from backend.config import utc_now_iso
     if _RUN_PIPELINE is None:
         from backend.pipeline import run_pipeline as _rp
         _RUN_PIPELINE = _rp
@@ -228,6 +221,37 @@ def _run_job(params, job):
     if _HOSPITAL_LOADER is None:
         from backend.gis.hospitals import load_hospitals
         _HOSPITAL_LOADER = load_hospitals
+
+
+def result_payload(cfg, params, res):
+    """Full API result payload (stats + sites + isochrones) from a
+    run_pipeline return dict. Shared by the worker and the gallery exporter
+    so both serve byte-identical shapes."""
+    from backend.config import utc_now_iso
+
+    payload = _build_payload(cfg, params, res)
+    sel = res["selection"]
+    # Isochrone layers: reverse multi-source Dijkstra + reachable-edge scan
+    # (same derivation as fig4 in the render script), baseline vs joint set.
+    added = [sel["candidates"].iloc[j].geometry for j in sel["selected"]]
+    payload["isochrones"] = {
+        "baseline": _isochrone_features(cfg, params["threshold"], added=()),
+        "joint": _isochrone_features(cfg, params["threshold"], added=added),
+    }
+    payload["comparable"] = True
+    payload["generated_at"] = utc_now_iso()
+    return payload
+
+
+def _run_job(params, job):
+    from backend.config import city_config
+    from backend.data import prepare
+
+    with _LOCK:
+        job["stage"] = _STAGE_LABELS["acquire"]
+
+    # Lazy heavy imports + test indirections.
+    _bind_loaders()
 
     slug = params["city"]  # data-dir slug: either the caller's city slug or _slug_for(place)
     cfg = city_config(slug, place=params["place"], country=params["country"])
@@ -258,17 +282,8 @@ def _run_job(params, job):
                         skip_forbidden=skip_forbidden, progress=progress)
     with _LOCK:
         job["stage"] = _STAGE_LABELS["iso"]
-    payload = _build_payload(cfg, params, res)
-    # Isochrone layers: reverse multi-source Dijkstra + reachable-edge scan
-    # (same derivation as fig4 in the render script), baseline vs joint set.
-    sel = res["selection"]
-    added = [sel["candidates"].iloc[j].geometry for j in sel["selected"]]
-    payload["isochrones"] = {
-        "baseline": _isochrone_features(cfg, params["threshold"], added=()),
-        "joint": _isochrone_features(cfg, params["threshold"], added=added),
-    }
+    payload = result_payload(cfg, params, res)
     payload["comparable"] = job["comparable"]
-    payload["generated_at"] = utc_now_iso()
     with _LOCK:
         job["result"] = payload
         job["status"] = "done"
