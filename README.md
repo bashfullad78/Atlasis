@@ -262,7 +262,7 @@ Implementation log: `docs/logs/v0.4-log.md`.
 
 Ordered by leverage; details and status in `docs/analyses/analysis-v0.3.md`:
 
-1. **FastAPI + Leaflet demo on a public URL** — a thin API over `run_pipeline`'s return dict and an interactive before/after map (the remaining v0.3 deliverable). **API + map shipped in v0.4; public hosting still pending.**
+1. **FastAPI + Leaflet demo on a public URL** — a thin API over `run_pipeline`'s return dict and an interactive before/after map (the remaining v0.3 deliverable). **API + map shipped in v0.4; the frontend + precomputed saved results deploy as a free static site (Vercel, root directory `web/`); live job submission stays local (`python -m backend.api.app`).**
 2. **External validation of drive times** — cross-check modeled times against OSRM/Valhalla on ~50 OD pairs per city to bound the network-model error. **Done in v0.4 for four cities.**
 3. **Per-facility capacity (beds)** for the 2SFCA — wire mapped `beds=` into `capacities=` on the next facility refetch; national-registry fallback where OSM has none. **Wired in v0.4 (OSM beds only; no national registry).**
 4. **Release hygiene** — tag `v0.3`, release notes, optional Zenodo DOI (LICENSE and `CITATION.cff` are in place; CI runs).
@@ -318,6 +318,8 @@ scripts/
   render_case_study_figures.py Offline matplotlib rendering of the case-study figures,
                                 with automated cross-checks against analysis-v0.3.md
   run_restricted_mysuru.py     Mysuru restricted-class (19 polygon-mapped) 5-min run
+  export_gallery.py            Precompute per-city saved results for the demo map's
+                               "Saved results" chips (writes web/gallery/, committed)
 ```
 
 ## License & citation
