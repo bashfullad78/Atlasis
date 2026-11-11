@@ -17,6 +17,7 @@
     freiburg:   { center: [47.995, 7.85], zoom: 12 },
     heidelberg: { center: [49.40, 8.68],  zoom: 13 },
     mysuru:     { center: [12.30, 76.65], zoom: 13 },
+    krakow:     { center: [50.06, 19.94], zoom: 12 },
   };
 
   /* state */
@@ -301,6 +302,47 @@
     } catch {
       $("health-dot").classList.add("bad");
       $("health-txt").textContent = "OFFLINE";
+      // static deploy (e.g. Vercel): saved results work, live runs don't
+      $("form-hint").textContent =
+        "saved results are fully viewable · live analyses need the local server (python -m backend.api.app)";
     }
+  })();
+
+  /* saved results (precomputed gallery; hidden when none exported) */
+  (async () => {
+    let manifest;
+    try {
+      const r = await fetch(API + "/gallery/index.json");
+      if (!r.ok) throw 0;
+      manifest = await r.json();
+    } catch { return; }  // no gallery exported: section stays hidden
+    if (!(manifest.cities || []).length) return;
+    const wrap = $("gallery"), chips = $("gallery-chips");
+    $("gallery-title").textContent =
+      `Saved results (${manifest.threshold / 60} min, ${manifest.num_sites} sites)`;
+    wrap.classList.remove("hidden");
+    manifest.cities.forEach((c) => {
+      const b = document.createElement("button");
+      b.textContent = c.label;
+      b.addEventListener("click", async () => {
+        b.disabled = true;
+        try {
+          const r = await fetch(API + "/gallery/" + c.city + ".json");
+          const res = await r.json();
+          if (!r.ok) throw new Error(res.error || `HTTP ${r.status}`);
+          state.lastBody = null;  // not retryable from the failed view
+          clearLayers();
+          map.flyTo((PRESETS[c.city] || PRESETS.testville).center,
+                    (PRESETS[c.city] || PRESETS.testville).zoom,
+                    { duration: REDUCED ? 0 : 1.2 });
+          renderResult(res);
+        } catch (e) {
+          toast(e.message, true);
+        } finally {
+          b.disabled = false;
+        }
+      });
+      chips.append(b);
+    });
   })();
 })();
